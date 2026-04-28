@@ -1,15 +1,15 @@
 # IB Automation Deployment Runbook
 
-從 Pine Script 訊號到 IB 自動下單的完整部署流程。對應 `pattern-detector-status.md` 裡「待完成」的 Step 1/3/4/5（Step 2 是 code，已交付為 `pine/traderspost_alert_snippet.pine`）。
+從 Pine Script 訊號到 IB 自動下單的完整部署流程。對應 `pattern-detector-status.md` 裡「待完成」的 Step 1/3/4/5（Step 2 已直接整合到 `pattern_detector_v2.pine` 的 LAYER 6）。
 
 **前提**：
-- TradingView Pro+ 以上方案（webhook alert 需付費方案）
+- TradingView Pro 以上方案（webhook alert 需付費方案；Essential 不支援 webhook）
 - IB 帳戶（paper account 即可開始）
-- 既有 `pattern_detector_v2.pine` indicator 已黏入 alert snippet（見 `pine/traderspost_alert_snippet.pine` 安裝說明）
+- 已用本 repo 最新版的 `pattern_detector_v2.pine`（含 LAYER 6 TradersPost webhook）
 
 **架構**：
 ```
-TradingView Indicator (alert)
+pattern_detector_v2.pine (LAYER 6: alert() + TradersPost JSON)
         │ webhook (HTTPS POST, JSON)
         ▼
 TradersPost (broker bridge)
@@ -17,6 +17,31 @@ TradersPost (broker bridge)
         ▼
 Interactive Brokers (paper / live)
 ```
+
+**JSON 範例**（v2.0 LAYER 6 alert() 自動組出）：
+
+```json
+{
+  "ticker": "SOFI",
+  "action": "buy",
+  "orderType": "market",
+  "quantityType": "risk_dollar_amount",
+  "quantity": 25,
+  "stopLoss": {"type": "stop", "stopPrice": 14.50},
+  "takeProfit": {"limitPrice": 17.00},
+  "signalPrice": 15.50,
+  "timeInForce": "day",
+  "extras": {
+    "pattern": "雙重底",
+    "quality": 78,
+    "rr": 1.67,
+    "interval": "60",
+    "version": "v2.0"
+  }
+}
+```
+
+TradersPost 收到後：用 `risk_dollar_amount` $25 ÷ (entry $15.50 - stop $14.50) = 25 股，送 IB market buy + bracket OCO（stop $14.50 / limit $17.00）。
 
 ---
 
@@ -85,18 +110,18 @@ Strategies 是 TradersPost 用來收 webhook 的單位，每個 strategy 一個 
 
 每個 watchlist ticker 各做一次（一個 ticker = 一個 alert quota）。
 
-### 3.1 確認 indicator 含 snippet 且運作正常
+### 3.1 確認 indicator 設定正確
 
 1. 在目標 ticker（先做 SOFI）打開 1H 圖表
-2. Add Indicator → 你的 `Pattern Detector v2`（已黏入 snippet）
-3. 設定面板找到 "TradersPost / IB Automation" 群組：
-   - **Enable TradersPost alerts**：✅ 打開
-   - **Watchlist**：`SOFI`（或留 `SOFI,SOXL,...` 多檔；每個圖表 alert 還是要分別設）
-   - **Risk per trade ($)**：`25`（$500 帳戶 5%）
-   - **Min quality score**：`70`
-   - **Min R:R ratio**：`1.5`
-   - **Enable long signals**：✅
-   - **Enable short signals**：⬜（cash account 不能 short）
+2. Add Indicator → `技術型態偵測器 v2.0`（含 LAYER 6 webhook）
+3. 設定面板捲到 `═══ TradersPost / IB Automation ═══` 群組：
+   - **啟用 TradersPost webhook**：✅ 打開
+   - **Watchlist**：`SOFI`（或 `SOFI,SOXL,...` 多檔；每個圖表 alert 還是要分別設）
+   - **單筆風險金額 ($)**：`25`（$500 帳戶 5%）
+   - **最低品質分 (live trading)**：`70`（高於主面板 minQuality；live 加嚴）
+   - **最低 R:R 比 (live trading)**：`1.5`
+   - **啟用做多訊號**：✅
+   - **啟用做空訊號**：⬜（cash 帳戶不能 short）
 
 ### 3.2 建立 Alert
 
