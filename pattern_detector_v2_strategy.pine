@@ -58,6 +58,10 @@ group_strat = "═══ 策略設定 ═══"
 onlyConfirmed = input.bool(true, "只交易「已突破」型態", group=group_strat, tooltip="關閉=形成中也進場（激進）")
 onlyT1        = input.bool(false, "只交易 Tier 1", group=group_strat, tooltip="開啟=忽略 Tier 2 型態")
 
+group_tp = "═══ TradersPost / IB Webhook ═══"
+tpRiskDollar = input.float(25.0, "單筆風險金額 ($)",  minval=1.0, step=1.0, group=group_tp,
+                           tooltip="$500 帳戶建議 $25 (5%)。TradersPost 用 risk_dollar_amount 自動算股數。回測不受影響（用 default_qty）")
+
 group_disp = "═══ 顯示 ═══"
 showTable  = input.bool(true, "顯示儀表板", group=group_disp)
 showZZ     = input.bool(false, "顯示 Zigzag 節點", group=group_disp)
@@ -510,11 +514,33 @@ while array.size(resName) > maxSignals
 // ============================================================
 int resultCount = array.size(resName)
 
+// ─── TradersPost JSON builder（給 strategy.entry alert_message 用） ───
+buildTpJson(string action, float stopPx, float tgtPx, string patName, float qScore, float rrVal) =>
+    '{' +
+      '"ticker":"' + syminfo.ticker + '",' +
+      '"action":"' + action + '",' +
+      '"orderType":"market",' +
+      '"quantityType":"risk_dollar_amount",' +
+      '"quantity":' + str.tostring(tpRiskDollar, "#.##") + ',' +
+      '"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopPx, "#.####") + '},' +
+      '"takeProfit":{"limitPrice":' + str.tostring(tgtPx, "#.####") + '},' +
+      '"signalPrice":' + str.tostring(close, "#.####") + ',' +
+      '"timeInForce":"day",' +
+      '"extras":{' +
+        '"pattern":"' + patName + '",' +
+        '"quality":' + str.tostring(qScore, "#") + ',' +
+        '"rr":' + str.tostring(rrVal, "#.##") + ',' +
+        '"interval":"' + timeframe.period + '",' +
+        '"version":"v2.0-strategy"' +
+      '}' +
+    '}'
+
 // ─── 策略進出場 ───
 if resultCount > 0
     string topName  = array.get(resName, 0)
     string topDir   = array.get(resDir, 0)
     string topState = array.get(resState, 0)
+    float topQ      = array.get(resQ, 0)
     float topEntry  = array.get(resEntry, 0)
     float topStop   = array.get(resStop, 0)
     float topTgt    = array.get(resTgt, 0)
@@ -522,19 +548,22 @@ if resultCount > 0
     bool isBear     = str.contains(topDir, "▼")
     bool canTrade   = onlyConfirmed ? topState == "已突破" : true
     bool hasEntry   = not na(topEntry) and not na(topStop) and not na(topTgt)
+    float topRR     = hasEntry ? safe_div(math.abs(topTgt - topEntry), math.abs(topEntry - topStop)) : 0.0
 
     if canTrade and hasEntry
         if isBull
+            string longJson = buildTpJson("buy", topStop, topTgt, topName, topQ, topRR)
             // 有空單先平
             if strategy.position_size < 0
                 strategy.close("Short", comment="反轉平空")
-            strategy.entry("Long", strategy.long, comment=topName)
+            strategy.entry("Long", strategy.long, comment=topName, alert_message=longJson)
             strategy.exit("Long Exit", "Long", stop=topStop, limit=topTgt, comment_profit="目標到", comment_loss="停損")
         else if isBear
+            string shortJson = buildTpJson("sell", topStop, topTgt, topName, topQ, topRR)
             // 有多單先平
             if strategy.position_size > 0
                 strategy.close("Long", comment="反轉平多")
-            strategy.entry("Short", strategy.short, comment=topName)
+            strategy.entry("Short", strategy.short, comment=topName, alert_message=shortJson)
             strategy.exit("Short Exit", "Short", stop=topStop, limit=topTgt, comment_profit="目標到", comment_loss="停損")
 
 // ─── Dashboard ───
@@ -598,3 +627,11 @@ if barstate.islast and showTable
     string dbg = "ZZ=" + str.tostring(zzSz) + " | 偵測=" + str.tostring(rawCount) + "→過濾=" + str.tostring(filtCount) + "→顯示=" + str.tostring(resultCount)
     table.cell(dash, 0, row, dbg, text_color=color.new(color.yellow, 30), text_size=size.tiny)
     table.merge_cells(dash, 0, row, 9, row)
+
+// ============================================================
+// LAYER 6: Alert hooks（給 TradersPost webhook 用）
+// 在 TradingView Add Alert 時 Message 欄位填 {{strategy.order.alert_message}}
+// 即可讓 TradersPost 收到上面 buildTpJson 拼好的 JSON。
+// 同時保留原本的 alertcondition 給 Telegram / 純通知用途。
+// ============================================================
+alertcondition(strategy.position_size != strategy.position_size[1], title="V2 進出場（含 TP JSON）", message="{{strategy.order.alert_message}}")
