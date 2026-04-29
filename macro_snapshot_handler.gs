@@ -1273,3 +1273,98 @@ function testSnowballDryRun() {
     console.log('     ' + rows[i].join(' | '));
   }
 }
+
+
+// ============================================================
+// Watchlist cleanup — 標記 ETF / closed / 負值，讓 routine 跳過
+// ============================================================
+/**
+ * 跑完 syncFromSnowball 後執行，清理 watchlist 的 note 欄。
+ * Routine 看到 note 含 "skip" 或 "no earnings" 會自動跳過。
+ *
+ * 規則（優先順序）：
+ *   1. ETF（TW 開頭 "00xxx" / US 已知 ETF 名單）→ "ETF (no earnings) — skip"
+ *   2. shares < 0（CSV 缺早期 BUY）→ "⚠ 負值 — skip（CSV 不完整）"
+ *   3. shares === 0 且 note 沒有 skip 字樣 → 加 "closed (skip)" 後綴
+ *   4. shares > 0 → 不動
+ *
+ * 不會覆寫 shares / avg_cost / exit_at — 只動 note 欄。
+ */
+function cleanWatchlist() {
+  const props = PropertiesService.getScriptProperties();
+  const SHEET_ID = props.getProperty('MACRO_SHEET_ID');
+  if (!SHEET_ID) throw new Error('MACRO_SHEET_ID 未設定');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName('earnings_watchlist');
+  if (!sh) throw new Error('earnings_watchlist sheet 不存在');
+
+  const data = sh.getDataRange().getValues();
+  const wlH = data[0];
+  const wIdx = (n) => {
+    const i = wlH.indexOf(n);
+    if (i < 0) throw new Error('watchlist 缺欄位: ' + n);
+    return i;
+  };
+  const wT = wIdx('ticker'), wM = wIdx('market'), wS = wIdx('shares'), wN = wIdx('note');
+
+  // 已知 US ETF / 槓桿 / 反向 ETF（補充用，TW 用 00 prefix 自動偵測）
+  const KNOWN_US_ETF = new Set([
+    'VOO','VTI','QQQ','SPY','IWM','DIA','EEM','EWT','EWY','EWJ','EWZ',
+    'XLF','XLE','XLK','XLV','XLY','XLP','XLI','XLU','XLB','XLC',
+    'ARKW','ARKK','ARKG','ARKF','ARKQ','EMQQ','IDRV','IXC','SOXX',
+    'TQQQ','SQQQ','UPRO','SPXU','SOXL','SOXS','TNA','TZA','UVXY','SVXY'
+  ]);
+
+  let etfMarked = 0, closedMarked = 0, negFlagged = 0;
+  for (let i = 1; i < data.length; i++) {
+    const ticker = String(data[i][wT] || '').trim();
+    if (!ticker) continue;
+    const market = String(data[i][wM] || '').trim().toUpperCase();
+    const shares = parseFloat(data[i][wS]);
+    const existing = String(data[i][wN] || '').trim();
+
+    let newNote = null, reason = null;
+
+    // Rule 1: ETF (top priority — never has earnings)
+    const isTwETF = market === 'TW' && /^00\d/.test(ticker);
+    const isUsETF = market === 'US' && KNOWN_US_ETF.has(ticker.toUpperCase());
+    if (isTwETF || isUsETF) {
+      if (!existing.toLowerCase().includes('no earnings')) {
+        newNote = 'ETF (no earnings) — skip';
+        reason = 'etf';
+      }
+    }
+    // Rule 2: negative shares (CSV history incomplete)
+    else if (isFinite(shares) && shares < 0) {
+      if (!existing.includes('負值')) {
+        newNote = '⚠ 負值 — skip（CSV 不完整，請手動補早期 BUY）';
+        reason = 'neg';
+      }
+    }
+    // Rule 3: closed position
+    else if (isFinite(shares) && shares === 0) {
+      const lower = existing.toLowerCase();
+      if (!lower.includes('skip') && !lower.includes('closed')) {
+        newNote = existing
+          ? existing + ' — closed (skip)'
+          : 'closed (skip)';
+        reason = 'closed';
+      }
+    }
+
+    if (newNote && newNote !== existing) {
+      sh.getRange(i + 1, wN + 1).setValue(newNote);
+      if (reason === 'etf')    etfMarked++;
+      else if (reason === 'neg')    negFlagged++;
+      else if (reason === 'closed') closedMarked++;
+      console.log('  ✏ ' + ticker + ' → ' + newNote);
+    }
+  }
+
+  console.log('');
+  console.log('✅ Watchlist cleanup 完成');
+  console.log('   ETF 標記: ' + etfMarked);
+  console.log('   Closed 標記: ' + closedMarked);
+  console.log('   負值警告: ' + negFlagged);
+}
