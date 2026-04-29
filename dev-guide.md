@@ -59,6 +59,51 @@
 25. **財務分析必須按順序** — ① 搜即時股價 → ② 搜財報數據 → ③ 算 PE → ④ 跑篩選 → ⑤ 建表。跳過任何步驟就會出錯。尤其不可「覺得自己知道」就跳過步驟①。越熟悉的股票越容易犯錯。
 26. **交叉驗證** — 每個數字都要 sanity check。PE × EPS 應 ≈ 股價。可買股數 × 股價 應 ≈ 預算。不一致代表某個輸入有誤。
 
+### GCP / Cloud Shell / BigQuery 部署陷阱（2026/4/29 新增，youtube-etl 部署實戰踩過）
+
+> Cross 不 debug。這些坑下次給新 Claude 接手時必須先讀，**不要再讓 Cross 來回貼錯誤訊息超過 2 次**。
+
+27. **🔴 placeholder `<VALUE>` 不可保留** — 寫指令給 Cross 時，所有 `<PROJECT_ID>` / `<ASSIGNMENT_ID>` 等尖括號標記，**必須在發給他之前就替換成真實值**。bash 把 `<` 解讀成 input redirect，整段噴 syntax error。實測踩過 2 次（STEP 1.1 切 project、reservation rm 指令）。**規則：發指令前用真實值替換，否則明寫 "把 XXX 改成 YYY 再貼"，但禁止保留尖括號**。
+
+28. **Cloud Shell 新 session 會丟掉 `gcloud config` 和環境變數** — 開新 tab / 過久重連 → `gcloud config get-value project` 回 `(unset)`、`PROJECT_ID` env var 也消失。每段指令前最好都 prepend：
+    ```bash
+    gcloud config set project mikai-yt-data
+    export PROJECT_ID="mikai-yt-data"
+    export BQ_LOCATION="US"
+    export BUCKET="youtube-etl-seed-${PROJECT_ID}"
+    ```
+    不要假設 Cross 還在同一個 session。
+
+29. **GitHub HTTPS 密碼登入 2021 年後砍掉** — `git clone` 私有 repo 在 Cloud Shell 噴 `Password authentication is not supported`。修法：`gh auth login` device flow，**必須在瀏覽器完整跑完授權**（看到綠勾 + terminal 印 `✓ Logged in as`）才能跑任何 git 指令。Cross 之前 device flow 沒走完就跑 `git fetch` → 又被問密碼。
+
+30. **`git fetch origin` 在斷掉的 clone 上不會抓到所有 branch** — 第一次 clone 失敗留下 broken 資料夾，重跑 `git fetch origin` 只抓 HEAD，看不到目標 branch → `pathspec ... did not match`。修法：`rm -rf` 後用 `git clone -b <branch> <url>` 從乾淨狀態重來。
+
+31. **BigQuery Editions 對新 project 預設啟用** — `mikai-yt-data` 從未碰過 BQ → 跑 `SELECT 1` 也噴 `Cannot run query: project does not have the reservation in the data region or no slots are configured`。GCP 從 2023 年改成新 project 預設走 capacity (Editions) 模式，沒 reservation 不能跑 query。
+    **修法**：建 0-baseline autoscale STANDARD reservation：
+    ```bash
+    bq mk --reservation --project_id="$PROJECT_ID" --location=US \
+      --slots=0 --edition=STANDARD --autoscale_max_slots=100 \
+      --ignore_idle_slots=true \
+      youtube-etl-rsv
+
+    bq mk --reservation_assignment --project_id="$PROJECT_ID" --location=US \
+      --reservation_id="${PROJECT_ID}:US.youtube-etl-rsv" \
+      --assignee_type=PROJECT --assignee_id="$PROJECT_ID" --job_type=QUERY
+    ```
+    成本：autoscale only on actual query → ETL 量小月費 < $5。
+
+32. **BQ reservation name 不能有底線** — `youtube_etl_rsv` ❌、`youtube-etl-rsv` ✅。錯誤訊息：`Malformed reservation id ... can only contain lower case alphanumeric characters or dashes`。
+
+33. **STANDARD edition reservation 必須 `--ignore_idle_slots=true`** — 不加噴 `STANDARD Reservation can not share idle slots`。enterprise edition 才能 share idle slot 給其他 reservation。
+
+34. **BQ reservation 建立後 propagation 有延遲** — assignment 建立成功，但接下來幾秒內 query 還是噴一樣的 reservation error。等 60-90 秒再 retry。**規則：reservation 建完先告訴 Cross "等 1 分鐘再跑下一條"，不要立刻接 query**。
+
+35. **builder-steps.md 寫的 BQ_LOCATION 可能不符合公司現況** — doc 寫 `asia-northeast1`（東京），但 mikai 既有 BQ dataset 在 `US`。**規則：套 DDL 前先 `bq ls --format=prettyjson | grep location` 看公司既有 region**，不要照抄 doc 範例。同理 `PROJECT_ID` 不要照抄 doc 範例。
+
+36. **寫 verify query 前必讀 DDL** — DDL `dim_talent` column 是 `manager_name`，不是 `manager`。錯誤訊息 `Unrecognized name: manager`。**規則：寫任何 SQL 前先讀對應 DDL 確認 column 名**，憑印象寫一定踩坑。
+
+37. **seed SQL 末尾通常已有 sanity SELECT — 不要再加自己的** — `dim_talent_load.sql` 最後就 SELECT manager_name + talent_count + graduated_count，已經夠用。多寫 verify query 只會多一個出錯點（column 名打錯、加 reservation propagation 失敗風險）。**規則：先讀完整個 seed SQL 再決定要不要加 verify**。
+
 ## 溝通原則
 
 ### 做
