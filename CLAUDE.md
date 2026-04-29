@@ -64,6 +64,7 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | 個股財務分析 / 五條件選股 | @.claude/skills/financial-analysis/SKILL.md |
 | Portfolio 配置 / 交易決策 | @.claude/skills/trading-decisions/SKILL.md |
 | **每日 Macro 推播 / Routine** | **@automation/README.md → @automation/routine/macro_snapshot_prompt.md** |
+| **每日 Macro 報告寫作風格（IB 分析師等級）** | **@.claude/skills/macro-daily-analyst-report/SKILL.md** |
 | **GAS bot 改造 / Telegram endpoint** | **@automation/gas-endpoint/macro_snapshot_handler.gs** |
 | **Pine alert webhook 設定** | **@automation/gas-endpoint/pine_alert_webhook.md** |
 | 經濟相態判斷 | @docs/module-1a.md（成長/通膨）+ @docs/module-1b.md（貨幣政策）|

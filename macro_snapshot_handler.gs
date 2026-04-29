@@ -695,6 +695,172 @@ function parseFloatLoose(v) {
 // Macro Snapshot 訊息格式化
 // ============================================================
 function formatMacroMessage(p) {
+  // 優先：IB 分析師格式（Routine 帶 analyst_report 時走新版）
+  if (p.analyst_report && p.analyst_report.headline) {
+    try {
+      return formatAnalystReport(p);
+    } catch (err) {
+      console.warn('[formatAnalystReport] failed, falling back to legacy:', err.message);
+      // 失敗就退回舊版，不阻斷推播
+    }
+  }
+  return formatLegacyMacroMessage(p);
+}
+
+
+/**
+ * IB 分析師等級的日報渲染（v2）
+ * 對應 .claude/skills/macro-daily-analyst-report/SKILL.md
+ *
+ * 章節順序（重敘事輕指標）：
+ *   1. Headline（一句結論）
+ *   2. 信號（stance · conviction · horizon）
+ *   3. 宏觀敘事（成長/通膨/估值各 1-2 句）
+ *   4. 持倉動作（具體 ticker + 動作）
+ *   5. 關鍵風險（排序 + 影響）
+ *   6. 今明 48H 催化劑
+ *   7. 關鍵價位
+ *   8. 翻盤條件
+ *   9. 量化參考 footer（簡版）
+ */
+function formatAnalystReport(p) {
+  const a = p.analyst_report || {};
+  const sessionLabel = {
+    'tw_pre_open': '🌅 台股盤前',
+    'us_pre_open': '🌃 美股盤前'
+  }[p.session] || '📊 快照';
+
+  const time = Utilities.formatDate(new Date(p.timestamp), 'Asia/Taipei', 'MM/dd HH:mm');
+
+  let msg = `<b>${sessionLabel} ${time}</b>\n`;
+  msg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+  // 1. Headline
+  msg += `<b>${escapeHtml(String(a.headline))}</b>\n\n`;
+
+  // 2. Top call
+  const tc = a.top_call || {};
+  if (tc.stance || tc.conviction) {
+    const stanceLabel = escapeHtml(String(tc.stance_label || tc.stance || '—'));
+    const conv = escapeHtml(String(tc.conviction || '—'));
+    const horizon = escapeHtml(String(tc.horizon || '—'));
+    msg += `<b>【信號】</b> ${stanceLabel} · ${conv} · ${horizon}\n`;
+    if (tc.one_liner) {
+      msg += `<i>${escapeHtml(String(tc.one_liner))}</i>\n`;
+    }
+    msg += `\n`;
+  }
+
+  // 3. 宏觀敘事
+  const rn = a.regime_narrative || {};
+  if (rn.growth || rn.inflation || rn.valuation_credit) {
+    msg += `<b>【宏觀敘事】</b>\n`;
+    if (rn.growth)           msg += `• 成長：${escapeHtml(String(rn.growth))}\n`;
+    if (rn.inflation)        msg += `• 通膨：${escapeHtml(String(rn.inflation))}\n`;
+    if (rn.valuation_credit) msg += `• 估值：${escapeHtml(String(rn.valuation_credit))}\n`;
+    msg += `\n`;
+  }
+
+  // 4. 持倉動作
+  if (Array.isArray(a.portfolio_implications) && a.portfolio_implications.length > 0) {
+    msg += `<b>【持倉動作】</b>\n`;
+    a.portfolio_implications.forEach(pi => {
+      const pos    = escapeHtml(String(pi.position || '—'));
+      const stance = escapeHtml(String(pi.stance || '—'));
+      const action = escapeHtml(String(pi.action || '—'));
+      msg += `• <b>${pos}</b> · ${stance}\n   → ${action}\n`;
+      if (pi.trigger_to_change && pi.trigger_to_change !== '—') {
+        msg += `   <i>觸發：${escapeHtml(String(pi.trigger_to_change))}</i>\n`;
+      }
+    });
+    msg += `\n`;
+  }
+
+  // 5. 關鍵風險
+  if (Array.isArray(a.key_risks_ranked) && a.key_risks_ranked.length > 0) {
+    msg += `<b>【關鍵風險】</b>\n`;
+    a.key_risks_ranked.forEach(r => {
+      const prob = String(r.probability || '');
+      const probIcon =
+        prob.indexOf('高') >= 0 ? '⚠⚠⚠' :
+        prob.indexOf('中') >= 0 ? '⚠⚠' : '⚠';
+      msg += `${probIcon} <b>${escapeHtml(String(r.risk || ''))}</b>\n`;
+      if (r.impact) msg += `   ${escapeHtml(String(r.impact))}\n`;
+    });
+    msg += `\n`;
+  }
+
+  // 6. 催化劑
+  if (Array.isArray(a.catalysts_24_48h) && a.catalysts_24_48h.length > 0) {
+    msg += `<b>【今明 48H 催化劑】</b>\n`;
+    a.catalysts_24_48h.forEach(c => {
+      const dt = formatCatalystTime(c.datetime_utc);
+      const evt = escapeHtml(String(c.event || ''));
+      const cons = escapeHtml(String(c.consensus || '—'));
+      const watch = escapeHtml(String(c.watch || ''));
+      msg += `<code>${dt}</code> <b>${evt}</b>\n   共識 ${cons} | ${watch}\n`;
+    });
+    msg += `\n`;
+  }
+
+  // 7. 關鍵價位
+  const kl = a.key_levels || {};
+  const klRows = [];
+  if (kl.spx) klRows.push(`SPX  <code>${fmt(kl.spx.support)}</code> / <code>${fmt(kl.spx.resistance)}</code>  現 <code>${fmt(kl.spx.current)}</code>`);
+  if (kl.txf) klRows.push(`TXF  <code>${fmt(kl.txf.support)}</code> / <code>${fmt(kl.txf.resistance)}</code>  現 <code>${fmt(kl.txf.current)}</code>`);
+  if (kl.vix) klRows.push(`VIX  &gt;<code>${fmt(kl.vix.trigger_high)}</code> 恐慌 / &lt;<code>${fmt(kl.vix.trigger_low)}</code> 自滿  現 <code>${fmt(kl.vix.current)}</code>`);
+  if (kl.usdtwd) klRows.push(`USDTWD  <code>${fmt(kl.usdtwd.support)}</code> / <code>${fmt(kl.usdtwd.resistance)}</code>  現 <code>${fmt(kl.usdtwd.current)}</code>`);
+  if (klRows.length > 0) {
+    msg += `<b>【關鍵價位】</b>\n${klRows.join('\n')}\n\n`;
+  }
+
+  // 8. 翻盤條件
+  if (a.what_proves_us_wrong) {
+    msg += `<b>【翻盤條件】</b>\n${escapeHtml(String(a.what_proves_us_wrong))}\n\n`;
+  }
+
+  // 9. 量化參考 footer（簡版，給願意看細節的人）
+  const light  = p.light || {};
+  const score  = p.macro_score || {};
+  const season = p.season || {};
+  const gates  = p.v10_gates || {};
+  msg += `<i>━━ 量化參考 ━━</i>\n`;
+  msg += `${escapeHtml(String(light.label || '🟡 黃燈'))} · 總分 <code>${fmt(score.total, 1)}</code> · 穩定度 <code>${fmt(light.stability_pct, 0)}%</code>\n`;
+  msg += `g=<code>${fmt(season.g_score)}</code>  i=<code>${fmt(season.i_score)}</code>  `;
+  msg += `Base=<code>${fmt(score.base)}</code> Val=<code>${fmt(score.val_adj)}</code>\n`;
+  msg += `D1 ${gateIcon(gates.d1_direction)} D4 ${gateIcon(gates.d4_cooldown)}`;
+  if (gates.needs_tradingview_check) msg += ` · D2/D3 看 TV`;
+  msg += `\n`;
+
+  // 數據警告
+  const dq = p.data_quality || {};
+  if (Array.isArray(dq.warnings) && dq.warnings.length > 0) {
+    msg += `\n⚠ <i>數據：${escapeHtml(dq.warnings.join(', '))}</i>`;
+  }
+
+  return msg;
+}
+
+
+/**
+ * 格式化催化劑時間 (UTC ISO → MM/dd HH:mm 台北時區)
+ */
+function formatCatalystTime(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return escapeHtml(String(isoStr));
+    return Utilities.formatDate(d, 'Asia/Taipei', 'MM/dd HH:mm');
+  } catch (e) {
+    return escapeHtml(String(isoStr));
+  }
+}
+
+
+// ============================================================
+// 舊版渲染（fallback：當 analyst_report 缺失或失敗）
+// ============================================================
+function formatLegacyMacroMessage(p) {
   const sessionLabel = {
     'tw_pre_open': '🌅 台股盤前',
     'us_pre_open': '🌃 美股盤前'
@@ -920,6 +1086,74 @@ function testMacroSnapshot() {
           summary: '黃燈待機。轉換期、PE 偏高、ERP 負值、VIX 平靜。',
           key_risks: ['通膨軸接近 Stagflation 觸發', 'ERP 負值', '5/15 Powell 風險'],
           recommended_action: '等綠燈或 Stagflation Override；不主動進場'
+        },
+        data_quality: { all_indicators_fresh: true, warnings: [] }
+      })
+    }
+  };
+
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 測試 IB 分析師格式（含 analyst_report 物件） */
+function testMacroSnapshotAnalyst() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+
+  const fakeEvent = {
+    parameter: { endpoint: 'macro_snapshot' },
+    postData: {
+      contents: JSON.stringify({
+        token: token,
+        version: 'v10.0',
+        timestamp: new Date().toISOString(),
+        session: 'tw_pre_open',
+        macro_score: { total: -17.6, base: 0, val_adj: -17.6, credit_adj: 0, contrarian: 0 },
+        season: { name: '🟡 轉換期', g_score: 0.5, i_score: 0.6 },
+        light: { color: 'yellow', label: '🟡 黃燈', stability_pct: 57, force_yellow: false, stagflation_override: false },
+        key_indicators: { vix: 17.83, erp: -0.79, real_rate: 1.91, hy_spread: 2.84, yield_curve: 0.45, oil_roc_20d: 3.4 },
+        v10_gates: { d1_direction: 'no_entry', d4_cooldown: 'ok', needs_tradingview_check: true },
+        actionable: {
+          summary: '黃燈待機',
+          key_risks: ['Core PCE', '消費信心', 'ERP 負值'],
+          recommended_action: '不主動進場'
+        },
+        analyst_report: {
+          headline: '🟡 黃燈待機 — 估值頂 + 消費信心歷史新低',
+          top_call: {
+            stance: 'neutral_defensive',
+            stance_label: '中性偏防禦',
+            conviction: 'HIGH',
+            horizon: '1-2 weeks',
+            one_liner: 'ERP 已負值無估值安全邊際；消費信心 49.8 暗示需求面崩盤'
+          },
+          regime_narrative: {
+            growth: '邊界訊號 g=+0.5。ISM 仍 >52 但消費信心歷史新低，5/2 NFP 是引信。',
+            inflation: 'ISM 物價 78.3 近 4 年高，i=+0.6 距 Stagflation 觸發還有 0.9。',
+            valuation_credit: 'SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票無吸引力。'
+          },
+          portfolio_implications: [
+            { position: '2330 台積電', stance: '持有', action: 'Core 不動', trigger_to_change: '若 SPX 跌破 5450 重評' },
+            { position: '2382 廣達', stance: '獲利減碼', action: '+30% 出 1,100 股', trigger_to_change: '若見 350 元' },
+            { position: '1810 小米', stance: '認賠分批', action: '5/27 Q1 財報前出 50%', trigger_to_change: '—' },
+            { position: '00632R 反一', stance: '加碼', action: '若 ERP <-1 加 10K', trigger_to_change: 'ERP 跌破 -1' }
+          ],
+          key_risks_ranked: [
+            { rank: 1, risk: '4/30 Core PCE March', impact: '若 >3.0% i_score 升至 +1.2', probability: '中' },
+            { rank: 2, risk: '消費信心 49.8 歷史新低', impact: '5月零售業績下修', probability: '高' },
+            { rank: 3, risk: 'ERP 持續負值', impact: 'SPX 修正 5-10%', probability: '中' }
+          ],
+          catalysts_24_48h: [
+            { datetime_utc: '2026-04-30T12:30Z', event: 'Core PCE March', consensus: '3.0%', watch: '若 >3.1% Stagflation 警報' },
+            { datetime_utc: '2026-05-01T14:00Z', event: 'ISM Manufacturing April', consensus: '52.5', watch: 'Prices Paid 是否仍 >65' }
+          ],
+          key_levels: {
+            spx: { support: 5450, resistance: 5800, current: 5620 },
+            txf: { support: 21000, resistance: 22500, current: 21800 },
+            vix: { trigger_high: 25, trigger_low: 15, current: 17.83 }
+          },
+          what_proves_us_wrong: '若 5/2 NFP > 220K 且 ISM Prices < 60 → 黃燈轉綠'
         },
         data_quality: { all_indicators_fresh: true, warnings: [] }
       })

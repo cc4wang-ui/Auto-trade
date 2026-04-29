@@ -135,6 +135,25 @@ d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）
 # 若沒辦法讀 → 假設 "ok"
 ```
 
+## Step 5.5：套 IB 分析師寫作規範（必做）
+
+**讀 `.claude/skills/macro-daily-analyst-report/SKILL.md`**，根據規範產出 `analyst_report` 物件。
+
+關鍵交付：
+- `headline`：一句結論（≤35 字含燈號 emoji）
+- `top_call`：stance + conviction (HIGH/MEDIUM/LOW) + horizon + one_liner
+- `regime_narrative`：成長 / 通膨 / 估值 三軸各 1-2 句敘事（**不是指標清單**）
+- `portfolio_implications`：對 Cross 實際持倉的具體動作（ticker + 數量/比例 + 條件）
+- `key_risks_ranked`：3 條，按 impact × probability 排序
+- `catalysts_24_48h`：未來 48h 真實事件
+- `key_levels`：SPX / TXF / VIX 關鍵價位
+- `what_proves_us_wrong`：什麼數據會翻盤今日結論
+
+**強制檢查**：跑完 SKILL.md 末尾的「出報前自檢清單」全部勾齊才 POST。
+若必填欄位拉不到資料 → 略過整個 `analyst_report`（GAS 自動退回舊版渲染）並在 `data_quality.warnings` 註明。
+
+---
+
 ## Step 6：POST 到 GAS
 
 ```
@@ -201,6 +220,44 @@ Content-Type: application/json
       "5/15 Powell 演說事件風險"
     ],
     "recommended_action": "等綠燈或 Stagflation Override；不主動進場"
+  },
+  "analyst_report": {
+    "headline": "🟡 黃燈待機 — 估值頂 + 消費信心歷史新低",
+    "top_call": {
+      "stance": "neutral_defensive",
+      "stance_label": "中性偏防禦",
+      "conviction": "HIGH",
+      "horizon": "1-2 weeks",
+      "one_liner": "ERP 已負值無估值安全邊際；消費信心 49.8 暗示需求面崩盤，等綠燈再進場"
+    },
+    "regime_narrative": {
+      "growth": "邊界訊號 g=+0.5。ISM 仍 >52 但消費信心歷史新低，內需崩盤訊號未確認，5/2 NFP 是引信。",
+      "inflation": "ISM 物價 78.3 近 4 年高，i=+0.6 距 Stagflation 觸發 (>1.5) 還有 0.9。Core PCE 4/30 補上缺口。",
+      "valuation_credit": "SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票相對無吸引力。HY 2.84% 信用零壓力——估值頂部訊號明確。"
+    },
+    "portfolio_implications": [
+      {"position": "2330 台積電", "stance": "持有", "action": "Core 不動", "trigger_to_change": "若 SPX 跌破 5450 重評"},
+      {"position": "2382 廣達", "stance": "獲利減碼", "action": "+30% 出 1,100 股 (50%)", "trigger_to_change": "若見 350 元"},
+      {"position": "1810 小米", "stance": "認賠分批", "action": "5/27 Q1 財報前出 50% (1,100 股)", "trigger_to_change": "—"},
+      {"position": "00632R 反一", "stance": "加碼", "action": "若 ERP <-1 加 10,000 股", "trigger_to_change": "ERP 跌破 -1"},
+      {"position": "IXC 能源", "stance": "持有", "action": "—", "trigger_to_change": "停火延長則平倉"}
+    ],
+    "key_risks_ranked": [
+      {"rank": 1, "risk": "4/30 Core PCE March", "impact": "若 >3.0% i_score 升至 +1.2，距 Stagflation Override 僅 0.3", "probability": "中"},
+      {"rank": 2, "risk": "消費信心 49.8 歷史新低", "impact": "5月零售業績下修 → 成長軸轉負", "probability": "高"},
+      {"rank": 3, "risk": "ERP 持續負值", "impact": "資金外逃股市 → SPX 修正 5-10%", "probability": "中"}
+    ],
+    "catalysts_24_48h": [
+      {"datetime_utc": "2026-04-30T12:30Z", "event": "Core PCE March", "consensus": "3.0%", "watch": "若 >3.1% Stagflation 警報"},
+      {"datetime_utc": "2026-05-01T14:00Z", "event": "ISM Manufacturing April", "consensus": "52.5", "watch": "Prices Paid 是否仍 >65"},
+      {"datetime_utc": "2026-05-02T12:30Z", "event": "NFP April", "consensus": "180K", "watch": "工資 YoY >4% 則 i_score +0.4"}
+    ],
+    "key_levels": {
+      "spx": {"support": 5450, "resistance": 5800, "current": 5620},
+      "txf": {"support": 21000, "resistance": 22500, "current": 21800},
+      "vix": {"trigger_high": 25, "trigger_low": 15, "current": 17.83}
+    },
+    "what_proves_us_wrong": "若 5/2 NFP > 220K 且 ISM Prices < 60 → 同時否定 Stagflation 與需求崩盤兩個論點，黃燈轉綠"
   },
   "data_quality": {
     "all_indicators_fresh": true,
