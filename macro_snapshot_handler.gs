@@ -23,8 +23,9 @@
 function doPost(e) {
   const endpoint = e.parameter.endpoint;
 
-  if (endpoint === 'macro_snapshot') return handleMacroSnapshot(e);
-  if (endpoint === 'v10_signal')     return handleV10Signal(e);
+  if (endpoint === 'macro_snapshot')  return handleMacroSnapshot(e);
+  if (endpoint === 'v10_signal')      return handleV10Signal(e);
+  if (endpoint === 'earnings_report') return handleEarningsReport(e);
 
   // ↓ 這裡接你既有的 Telegram update 處理（v5 bot 那 1003 行的 entry）
   return handleTelegramUpdate(e);
@@ -59,7 +60,7 @@ function setupCheck() {
   const sheetId = props.getProperty('MACRO_SHEET_ID');
   try {
     const ss = SpreadsheetApp.openById(sheetId);
-    const sheets = ['macro_log', 'signal_log', 'dedup_state'];
+    const sheets = ['macro_log', 'signal_log', 'dedup_state', 'earnings_watchlist', 'earnings_log'];
     sheets.forEach(name => {
       let sh = ss.getSheetByName(name);
       if (!sh) {
@@ -73,6 +74,30 @@ function setupCheck() {
           sh.appendRow(['key_type', 'last_key', 'updated_at']);
           sh.appendRow(['macro_session', '', '']);
           sh.appendRow(['v10_signal', '', '']);
+        } else if (name === 'earnings_watchlist') {
+          sh.appendRow(['ticker', 'market', 'shares', 'avg_cost', 'added_at', 'exit_at', 'note']);
+          // 預填 Cross 已開倉過的 11 檔（shares/avg_cost 留空 → 你自己補）
+          // ETF / 反向 ETF 不發財報，標 skip
+          const seed = [
+            ['2330',   'TW', '', '', '2025', '', '台積電'],
+            ['006208', 'TW', '', '', '2025', '', 'ETF (no earnings) — skip'],
+            ['2382',   'TW', '', '', '2025', '', '廣達'],
+            ['9660',   'TW', '', '', '2025', '', ''],
+            ['00632R', 'TW', '', '', '2025', '', 'ETF (no earnings) — skip'],
+            ['1810',   'HK', '', '', '2025', '', '小米（港股，HKEX）'],
+            ['QQQ',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
+            ['NFLX',   'US', '', '', '2025', '', ''],
+            ['NVDA',   'US', '', '', '2025', '', ''],
+            ['VOO',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
+            ['VTI',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
+            ['IXC',    'US', '', '', '2026-04-21', '', 'ETF (no earnings) — skip / 能源對沖']
+          ];
+          seed.forEach(row => sh.appendRow(row));
+          console.log('  → 已預填 12 列（請自行補 shares / avg_cost）');
+        } else if (name === 'earnings_log') {
+          sh.appendRow(['timestamp', 'ticker', 'type', 'earnings_date',
+                        'eps_actual', 'eps_estimate', 'rev_actual', 'rev_estimate',
+                        'price_reaction_pct', 'summary_text']);
         }
       } else {
         console.log(`✅ Sheet "${name}" OK`);
@@ -305,6 +330,297 @@ function handleV10Signal(e) {
   } finally {
     if (lockAcquired) lock.releaseLock();
   }
+}
+
+
+// ============================================================
+// Earnings Report endpoint handler
+// 接收 Routine 推來的「明日提醒」(type=alert) 和「當日盤後 summary」(type=summary)
+// ============================================================
+function handleEarningsReport(e) {
+  const lock = LockService.getScriptLock();
+  let lockAcquired = false;
+
+  try {
+    if (!lock.tryLock(5000)) {
+      return jsonResp({ ok: false, error: 'lock_timeout' });
+    }
+    lockAcquired = true;
+
+    if (!e.postData || !e.postData.contents) {
+      return jsonResp({ ok: false, error: 'no_body' });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonResp({ ok: false, error: 'invalid_json' });
+    }
+
+    // ─── Token（沿用 ROUTINE_TOKEN）───
+    const expectedToken = PropertiesService.getScriptProperties().getProperty('ROUTINE_TOKEN');
+    if (!expectedToken) {
+      return jsonResp({ ok: false, error: 'server_misconfigured' });
+    }
+    if (payload.token !== expectedToken) {
+      console.warn('[earnings] Invalid token');
+      return jsonResp({ ok: false, error: 'unauthorized' });
+    }
+
+    // ─── 必要欄位 ───
+    const required = ['type', 'ticker', 'earnings_date'];
+    const missing = required.filter(k => payload[k] === undefined || payload[k] === null);
+    if (missing.length > 0) {
+      throw new Error('Missing fields: ' + missing.join(', '));
+    }
+    if (payload.type !== 'alert' && payload.type !== 'summary') {
+      throw new Error('Invalid type: ' + payload.type);
+    }
+
+    // ─── Dedup（掃 earnings_log 最後 50 列；同一 ticker+type+earnings_date 已記錄就 skip）───
+    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
+    if (!sheetId) {
+      return jsonResp({ ok: false, error: 'sheet_id_missing' });
+    }
+    const ss = SpreadsheetApp.openById(sheetId);
+    const logSheet = ss.getSheetByName('earnings_log');
+    if (!logSheet) {
+      throw new Error('earnings_log sheet missing — run setupCheck()');
+    }
+
+    const dedupKey = `${payload.ticker}_${payload.type}_${payload.earnings_date}`;
+    const lastRow = logSheet.getLastRow();
+    if (lastRow > 1) {
+      const startRow = Math.max(2, lastRow - 49);
+      const numRows = lastRow - startRow + 1;
+      const recent = logSheet.getRange(startRow, 2, numRows, 3).getValues();  // ticker, type, earnings_date
+      for (let i = 0; i < recent.length; i++) {
+        const k = `${recent[i][0]}_${recent[i][1]}_${recent[i][2]}`;
+        if (k === dedupKey) {
+          console.warn(`[earnings] Dedup hit: ${dedupKey}`);
+          return jsonResp({ ok: true, dedup: true });
+        }
+      }
+    }
+
+    // ─── 格式化訊息 ───
+    const msg = payload.type === 'alert'
+      ? formatEarningsAlert(payload)
+      : formatEarningsSummary(payload);
+
+    const sendResult = sendTelegramHtml(msg);
+    if (!sendResult.ok) {
+      throw new Error(`Telegram send failed: ${sendResult.error}`);
+    }
+
+    // ─── 記 log ───
+    logSheet.appendRow([
+      new Date(),
+      payload.ticker,
+      payload.type,
+      payload.earnings_date,
+      safe(() => payload.eps_actual),
+      safe(() => payload.eps_estimate),
+      safe(() => payload.rev_actual),
+      safe(() => payload.rev_estimate),
+      safe(() => payload.price_reaction_pct),
+      safe(() => payload.summary_text)
+    ]);
+
+    return jsonResp({ ok: true, posted: true });
+
+  } catch (err) {
+    console.error('[earnings]', err.message, err.stack);
+    try {
+      sendTelegramHtml(`⚠ <b>Earnings 推送失敗</b>\n${escapeHtml(err.message)}`);
+    } catch (_) {}
+    return jsonResp({ ok: false, error: err.message });
+  } finally {
+    if (lockAcquired) lock.releaseLock();
+  }
+}
+
+
+// ============================================================
+// Earnings 訊息格式化
+// ============================================================
+
+/**
+ * 前一交易日提醒（type=alert）
+ * payload 欄位:
+ *   ticker, market ('TW'|'US'|'HK'), earnings_date (YYYY-MM-DD),
+ *   release_time_local (e.g. "盤後 16:30 NY" / "14:00 台北"),
+ *   eps_estimate, rev_estimate (string with currency),
+ *   shares (number, optional), avg_cost (number, optional),
+ *   current_price (number), action_hint (string, optional)
+ */
+function formatEarningsAlert(p) {
+  const marketLabel = { 'TW': '台股', 'US': '美股', 'HK': '港股' }[p.market] || p.market || '';
+  let msg = `📅 <b>明日財報提醒</b>  ${escapeHtml(String(p.earnings_date))}\n`;
+  msg += `━━━━━━━━━━━━━━━━━━\n`;
+  msg += `<b>${escapeHtml(String(p.ticker))}</b>`;
+  if (p.company_name) msg += `  ${escapeHtml(String(p.company_name))}`;
+  if (marketLabel)    msg += `  <i>${escapeHtml(marketLabel)}</i>`;
+  msg += `\n`;
+  if (p.release_time_local) {
+    msg += `公布時間: ${escapeHtml(String(p.release_time_local))}\n`;
+  }
+  if (p.fiscal_period) {
+    msg += `期別: ${escapeHtml(String(p.fiscal_period))}\n`;
+  }
+  msg += `\n<b>分析師預估</b>\n`;
+  if (p.eps_estimate !== undefined && p.eps_estimate !== null) {
+    msg += `EPS: <code>${escapeHtml(String(p.eps_estimate))}</code>\n`;
+  }
+  if (p.rev_estimate !== undefined && p.rev_estimate !== null) {
+    msg += `Rev: <code>${escapeHtml(String(p.rev_estimate))}</code>\n`;
+  }
+
+  // 部位影響預估（只有 shares 填了才算）
+  if (typeof p.shares === 'number' && p.shares > 0 && typeof p.current_price === 'number') {
+    msg += `\n<b>你的部位</b>\n`;
+    msg += `${fmt(p.shares, 0)} 股 @ 現價 <code>${fmt(p.current_price)}</code>`;
+    if (typeof p.avg_cost === 'number' && p.avg_cost > 0) {
+      const pnlPct = ((p.current_price - p.avg_cost) / p.avg_cost) * 100;
+      msg += `（avg <code>${fmt(p.avg_cost)}</code>, ${fmt(pnlPct, 1)}%）`;
+    }
+    msg += `\n`;
+    // 盤後波動 ±10% 假設
+    const lowSwing = p.current_price * p.shares * 0.10;
+    msg += `±10% 波動 ≈ <code>${fmt(lowSwing, 0)}</code>\n`;
+  } else {
+    msg += `\n⚠ <i>部位 shares/avg_cost 未填，無法估影響 — 補 earnings_watchlist</i>\n`;
+  }
+
+  msg += `\n<b>提醒</b>\n`;
+  msg += `• 不過 earnings → 盤前/收盤前出\n`;
+  msg += `• 過 earnings → IB 設 OCO 保護\n`;
+  if (p.action_hint) {
+    msg += `• ${escapeHtml(String(p.action_hint))}\n`;
+  }
+  return msg;
+}
+
+/**
+ * 公布當日盤後 summary（type=summary）
+ * payload 欄位:
+ *   ticker, market, earnings_date, fiscal_period,
+ *   eps_actual, eps_estimate, eps_yoy_pct,
+ *   rev_actual, rev_estimate, rev_yoy_pct,
+ *   guidance ('raised' | 'in_line' | 'cut' | null),
+ *   guidance_text (string, optional),
+ *   price_before, price_after, price_reaction_pct,
+ *   shares, avg_cost,
+ *   recommendation ('hold' | 'add' | 'trim' | 'exit' | 'monitor'),
+ *   recommendation_reason (string),
+ *   summary_text (string, 2-3 句重點)
+ */
+function formatEarningsSummary(p) {
+  const marketLabel = { 'TW': '台股', 'US': '美股', 'HK': '港股' }[p.market] || p.market || '';
+  let msg = `📊 <b>${escapeHtml(String(p.ticker))} 財報公布</b>`;
+  if (p.fiscal_period) msg += `  ${escapeHtml(String(p.fiscal_period))}`;
+  msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+  if (p.company_name) msg += `${escapeHtml(String(p.company_name))} <i>${escapeHtml(marketLabel)}</i>\n\n`;
+
+  // EPS / Rev beat-miss
+  if (p.eps_actual !== undefined && p.eps_actual !== null) {
+    msg += `<b>EPS</b>: 實際 <code>${escapeHtml(String(p.eps_actual))}</code>`;
+    if (p.eps_estimate !== undefined && p.eps_estimate !== null) {
+      msg += ` / 預估 <code>${escapeHtml(String(p.eps_estimate))}</code>`;
+    }
+    msg += `  ${beatMissIcon(p.eps_actual, p.eps_estimate)}`;
+    if (typeof p.eps_yoy_pct === 'number') msg += `  YoY ${fmt(p.eps_yoy_pct, 1)}%`;
+    msg += `\n`;
+  }
+  if (p.rev_actual !== undefined && p.rev_actual !== null) {
+    msg += `<b>Rev</b>: 實際 <code>${escapeHtml(String(p.rev_actual))}</code>`;
+    if (p.rev_estimate !== undefined && p.rev_estimate !== null) {
+      msg += ` / 預估 <code>${escapeHtml(String(p.rev_estimate))}</code>`;
+    }
+    msg += `  ${beatMissIcon(p.rev_actual, p.rev_estimate)}`;
+    if (typeof p.rev_yoy_pct === 'number') msg += `  YoY ${fmt(p.rev_yoy_pct, 1)}%`;
+    msg += `\n`;
+  }
+
+  // Guidance
+  if (p.guidance) {
+    const gIcon = { 'raised': '🟢 上修', 'in_line': '⚪ 持平', 'cut': '🔴 下修' }[p.guidance] || p.guidance;
+    msg += `<b>Guidance</b>: ${escapeHtml(gIcon)}`;
+    if (p.guidance_text) msg += `  ${escapeHtml(String(p.guidance_text))}`;
+    msg += `\n`;
+  }
+
+  // 盤後股價反應
+  if (typeof p.price_reaction_pct === 'number') {
+    const rIcon = p.price_reaction_pct >= 0 ? '📈' : '📉';
+    msg += `\n${rIcon} <b>盤後反應</b>: ${fmt(p.price_reaction_pct, 1)}%`;
+    if (typeof p.price_before === 'number' && typeof p.price_after === 'number') {
+      msg += `（<code>${fmt(p.price_before)}</code> → <code>${fmt(p.price_after)}</code>）`;
+    }
+    msg += `\n`;
+  }
+
+  // 對部位影響
+  if (typeof p.shares === 'number' && p.shares > 0
+      && typeof p.price_after === 'number') {
+    msg += `\n<b>你的影響</b>\n`;
+    msg += `部位 ${fmt(p.shares, 0)} 股`;
+    if (typeof p.avg_cost === 'number' && p.avg_cost > 0) {
+      const totalPnl = (p.price_after - p.avg_cost) * p.shares;
+      const totalPct = ((p.price_after - p.avg_cost) / p.avg_cost) * 100;
+      msg += ` @ avg <code>${fmt(p.avg_cost)}</code>\n`;
+      msg += `MTM ≈ <code>${fmt(totalPnl, 0)}</code>（${fmt(totalPct, 1)}% vs avg）\n`;
+    } else {
+      msg += `（avg_cost 未填，無 PnL）\n`;
+    }
+    if (typeof p.price_reaction_pct === 'number') {
+      const todayPnl = p.price_after * p.shares * (p.price_reaction_pct / 100);
+      msg += `今日 ≈ <code>${fmt(todayPnl, 0)}</code>\n`;
+    }
+  }
+
+  // 建議
+  if (p.recommendation) {
+    const recIcon = {
+      'add':     '🟢 加碼',
+      'hold':    '⚪ 持有',
+      'monitor': '🟡 觀察',
+      'trim':    '🟠 減碼',
+      'exit':    '🔴 出清'
+    }[p.recommendation] || p.recommendation;
+    msg += `\n<b>建議</b>: ${escapeHtml(recIcon)}`;
+    if (p.recommendation_reason) {
+      msg += `\n<i>${escapeHtml(String(p.recommendation_reason))}</i>`;
+    }
+    msg += `\n`;
+  }
+
+  // 摘要
+  if (p.summary_text) {
+    msg += `\n<b>重點</b>\n${escapeHtml(String(p.summary_text))}`;
+  }
+
+  return msg;
+}
+
+/** Beat / Miss 圖示 — 接受字串或數字（"$0.92" / 0.92 都能比） */
+function beatMissIcon(actual, estimate) {
+  const a = parseFloatLoose(actual);
+  const e = parseFloatLoose(estimate);
+  if (a === null || e === null) return '';
+  if (a > e) return '✅ Beat';
+  if (a < e) return '❌ Miss';
+  return '⚪ In-line';
+}
+
+/** 從 "$0.92" / "$44.2B" / 0.92 抽出純數字（M/B/K 不換算 — 只給 beat/miss 比方向用） */
+function parseFloatLoose(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const m = String(v).replace(/[$,\s]/g, '').match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  const n = parseFloat(m[0]);
+  return isFinite(n) ? n : null;
 }
 
 
@@ -571,6 +887,75 @@ function testV10Signal() {
     }
   };
 
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 模擬 Routine 送 earnings_report alert */
+function testEarningsAlert() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+
+  const fakeEvent = {
+    parameter: { endpoint: 'earnings_report' },
+    postData: {
+      contents: JSON.stringify({
+        token: token,
+        type: 'alert',
+        ticker: 'NVDA',
+        company_name: 'NVIDIA',
+        market: 'US',
+        earnings_date: '2026-05-21',
+        fiscal_period: 'Q1 FY26',
+        release_time_local: '盤後 16:30 NY',
+        eps_estimate: '$0.84',
+        rev_estimate: '$43.1B',
+        shares: 50,
+        avg_cost: 145.20,
+        current_price: 178.50,
+        action_hint: '財報前避免加碼，IV 已偏高'
+      })
+    }
+  };
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 模擬 Routine 送 earnings_report summary */
+function testEarningsSummary() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+
+  const fakeEvent = {
+    parameter: { endpoint: 'earnings_report' },
+    postData: {
+      contents: JSON.stringify({
+        token: token,
+        type: 'summary',
+        ticker: 'NVDA',
+        company_name: 'NVIDIA',
+        market: 'US',
+        earnings_date: '2026-05-21',
+        fiscal_period: 'Q1 FY26',
+        eps_actual: '$0.92',
+        eps_estimate: '$0.84',
+        eps_yoy_pct: 120.5,
+        rev_actual: '$44.2B',
+        rev_estimate: '$43.1B',
+        rev_yoy_pct: 69.2,
+        guidance: 'raised',
+        guidance_text: 'Q2 Rev $45-47B vs 預估 $44.5B',
+        price_before: 178.50,
+        price_after: 190.65,
+        price_reaction_pct: 6.81,
+        shares: 50,
+        avg_cost: 145.20,
+        recommendation: 'hold',
+        recommendation_reason: 'Beat 雙線 + Guidance 上修，但 PE 已 60+，不加碼',
+        summary_text: '資料中心 +85% YoY 為主要驅動。Blackwell 出貨節奏優於預期。中國禁令影響已 priced in。'
+      })
+    }
+  };
   const result = doPost(fakeEvent);
   console.log('Result:', result.getContent());
 }
