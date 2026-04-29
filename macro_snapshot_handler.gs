@@ -26,6 +26,7 @@ function doPost(e) {
   if (endpoint === 'macro_snapshot')  return handleMacroSnapshot(e);
   if (endpoint === 'v10_signal')      return handleV10Signal(e);
   if (endpoint === 'earnings_report') return handleEarningsReport(e);
+  if (endpoint === 'read_watchlist')  return handleReadWatchlist(e);
 
   // ↓ 這裡接你既有的 Telegram update 處理（v5 bot 那 1003 行的 entry）
   return handleTelegramUpdate(e);
@@ -437,6 +438,64 @@ function handleEarningsReport(e) {
     return jsonResp({ ok: false, error: err.message });
   } finally {
     if (lockAcquired) lock.releaseLock();
+  }
+}
+
+
+// ============================================================
+// Read watchlist endpoint — Routine 動態讀清單，不再硬編在 prompt
+// ============================================================
+function handleReadWatchlist(e) {
+  try {
+    if (!e.postData || !e.postData.contents) {
+      return jsonResp({ ok: false, error: 'no_body' });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonResp({ ok: false, error: 'invalid_json' });
+    }
+
+    const expectedToken = PropertiesService.getScriptProperties().getProperty('ROUTINE_TOKEN');
+    if (!expectedToken) {
+      return jsonResp({ ok: false, error: 'server_misconfigured' });
+    }
+    if (payload.token !== expectedToken) {
+      console.warn('[read_watchlist] Invalid token');
+      return jsonResp({ ok: false, error: 'unauthorized' });
+    }
+
+    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
+    if (!sheetId) {
+      return jsonResp({ ok: false, error: 'sheet_id_missing' });
+    }
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName('earnings_watchlist');
+    if (!sh) {
+      throw new Error('earnings_watchlist sheet missing — run setupCheck()');
+    }
+
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) {
+      return jsonResp({ ok: true, watchlist: [], count: 0 });
+    }
+    const rows = sh.getRange(2, 1, lastRow - 1, 7).getValues();  // 7 columns
+    const watchlist = rows.map(r => ({
+      ticker:   String(r[0] || '').trim(),
+      market:   String(r[1] || '').trim(),
+      shares:   r[2] === '' || r[2] === null ? null : Number(r[2]),
+      avg_cost: r[3] === '' || r[3] === null ? null : Number(r[3]),
+      added_at: r[4] ? String(r[4]) : null,
+      exit_at:  r[5] ? String(r[5]) : null,
+      note:     String(r[6] || '').trim()
+    })).filter(x => x.ticker !== '');
+
+    return jsonResp({ ok: true, watchlist: watchlist, count: watchlist.length });
+
+  } catch (err) {
+    console.error('[read_watchlist]', err.message, err.stack);
+    return jsonResp({ ok: false, error: err.message });
   }
 }
 
@@ -955,6 +1014,18 @@ function testEarningsSummary() {
         summary_text: '資料中心 +85% YoY 為主要驅動。Blackwell 出貨節奏優於預期。中國禁令影響已 priced in。'
       })
     }
+  };
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 模擬 Routine 拉 watchlist */
+function testReadWatchlist() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+  const fakeEvent = {
+    parameter: { endpoint: 'read_watchlist' },
+    postData: { contents: JSON.stringify({ token: token }) }
   };
   const result = doPost(fakeEvent);
   console.log('Result:', result.getContent());

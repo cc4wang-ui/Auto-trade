@@ -60,26 +60,38 @@ else:
 
 ## Step 1：讀 watchlist
 
-從 GAS sheet `earnings_watchlist` 拉 ticker 清單。
+**Single source of truth = `earnings_watchlist` sheet**。Cross 加新部位只動 sheet，不改 prompt。
 
-**簡化做法**：直接呼叫 GAS 一個 read endpoint（之後做）。
-**目前做法**：把 watchlist 硬編在 prompt（cross 改清單時修這檔）：
+```
+POST {GAS_WEBHOOK_URL_BASE}?endpoint=read_watchlist
+Content-Type: application/json
 
-```yaml
-# 11 檔 — Cross 持倉過的股票（2026/04 為止）
-- ticker: 2330,   market: TW,  note: 台積電
-- ticker: 2382,   market: TW,  note: 廣達
-- ticker: 9660,   market: TW,  note: ""
-- ticker: 1810,   market: HK,  note: 小米（港股）
-- ticker: NFLX,   market: US,  note: ""
-- ticker: NVDA,   market: US,  note: ""
-
-# 略過（ETF / 反向 ETF 沒有 earnings call）
-- 006208, 00632R, QQQ, VOO, VTI, IXC
+{ "token": "{ROUTINE_TOKEN}" }
 ```
 
-⚠ Cross 之後在 sheet 加新 ticker，他會手動更新這檔 prompt 的 yaml。
-（未來可改成 GAS read endpoint 自動拉。）
+回傳：
+
+```json
+{
+  "ok": true,
+  "count": 12,
+  "watchlist": [
+    { "ticker": "2330", "market": "TW", "shares": null, "avg_cost": null,
+      "added_at": "2025", "exit_at": null, "note": "台積電" },
+    { "ticker": "QQQ", "market": "US", ..., "note": "ETF (no earnings) — skip" },
+    ...
+  ]
+}
+```
+
+### 過濾規則
+
+對每筆 row：
+- **跳過** 如果 `note` 含字串 `"no earnings"` 或 `"skip"` → ETF / 反向 ETF / 已退市
+- **跳過** 如果 `exit_at` 不為 null 且 > 6 個月前 → 早就賣掉的，不再追蹤
+- **保留** 其餘進入 Step 2 財報日比對
+
+`shares` / `avg_cost` 可能是 null（Cross 還沒填）→ 推訊息時 GAS formatter 會顯示 「未填，無法估影響」，不會 crash。
 
 ---
 
@@ -218,11 +230,14 @@ for each ticker hit:
 ✅ Earnings routine 完成
 - Mode: alert (UTC hour=13)
 - Target date: 2026-05-21
-- Watchlist scanned: 6 個別股 + 6 ETF (skipped)
-- Hits: 1 (NVDA Q1 FY26)
+- Watchlist fetched: 12 (6 個別股 + 6 跳過)
+- Earnings hits: 1 (NVDA Q1 FY26)
 - POST status: 200 ({"ok":true,"posted":true})
 - Failures: 0
 ```
+
+如果 `read_watchlist` 拉不到（GAS 掛了 / token 錯）→ 直接 fallback Telegram 通知 Cross，**不要**用 hardcoded 名單偷跑。
+資料一致性 > 服務可用性，缺一份提醒比推錯訊息好。
 
 ---
 
@@ -256,8 +271,7 @@ Secrets:
 
 ## 已知限制
 
-1. **Watchlist 是 prompt 硬編** — Cross 加新部位要手動修這檔。未來可加 GAS read endpoint。
-2. **沒有 EPS / Rev 跨週期一致性檢查** — 例如 split / restatement 後 YoY 可能算錯。第一個月手動驗證 1-2 次。
-3. **港股、台股財報語言混雜** — 1810 小米財報用簡中，2330 台積電用繁中 + 英文。`summary_text` 用繁中重述。
-4. **盤後 quote 不是 100% 即時** — web_search 拉到的盤後價可能延遲 5-15 分鐘，不影響大方向判斷。
-5. **不算 options / IV** — 純股價反應，options 倉位請 Cross 自行判斷。
+1. **沒有 EPS / Rev 跨週期一致性檢查** — 例如 split / restatement 後 YoY 可能算錯。第一個月手動驗證 1-2 次。
+2. **港股、台股財報語言混雜** — 1810 小米財報用簡中，2330 台積電用繁中 + 英文。`summary_text` 用繁中重述。
+3. **盤後 quote 不是 100% 即時** — web_search 拉到的盤後價可能延遲 5-15 分鐘，不影響大方向判斷。
+4. **不算 options / IV** — 純股價反應，options 倉位請 Cross 自行判斷。
