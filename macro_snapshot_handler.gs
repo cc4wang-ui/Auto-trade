@@ -57,6 +57,14 @@ function setupCheck() {
     console.log('✅ 所有 Script Properties 已設定');
   }
 
+  // 選用 properties — 沒設不會掛，但對應功能不會 work
+  const optional = ['SNOWBALL_FOLDER_ID'];
+  optional.forEach(k => {
+    if (!props.getProperty(k)) {
+      console.log('ℹ Optional Property "' + k + '" 未設定（syncFromSnowball 會跳過）');
+    }
+  });
+
   // 驗證 sheet 結構
   const sheetId = props.getProperty('MACRO_SHEET_ID');
   try {
@@ -1052,4 +1060,216 @@ function testFmt() {
   console.log(fmt('not a num'));  // —
   console.log(fmt('15.9'));       // +15.90 (string parse)
   console.log(fmt(15.9, 0));      // +16
+}
+
+
+// ============================================================
+// Snowball CSV → earnings_watchlist 自動同步
+// ============================================================
+/**
+ * 從 Drive folder 抓最新的 Snowball CSV，加總 BUY/SELL 算出當前持倉，
+ * 更新 earnings_watchlist sheet（既有 ticker 改 shares/avg_cost，新 ticker append，淨股=0 標 exit_at）。
+ *
+ * 用法：
+ *   1. 設 Script Property SNOWBALL_FOLDER_ID = <Drive folder ID>
+ *   2. 把 Snowball 匯出的 CSV 拖進那個 folder
+ *   3. Apps Script 編輯器選 syncFromSnowball → Run
+ *
+ * Snowball CSV header: Event, Date, Symbol, Price, Quantity, Currency, FeeTax, Exchange, FeeCurrency, DoNotAdjustCash, Note
+ * Event 種類：BUY / SELL / CASH_IN / DIVIDEND / SPLIT 等。本函數只處理 BUY / SELL。
+ *
+ * 注意：
+ *   - Snowball 把台股 ETF 的開頭 0 砍掉（006208 → 6208）→ 用 strip-leading-zero 配對
+ *   - avg_cost 用所有 BUY 事件的加權平均（不做 FIFO/LIFO）→ 估算用，誤差可接受
+ *   - 既有 ticker 用「strip 前導 0 + 大寫」當 key 配對；新 ticker 用 Snowball 原樣寫入
+ */
+function syncFromSnowball() {
+  const props = PropertiesService.getScriptProperties();
+  const FOLDER_ID = props.getProperty('SNOWBALL_FOLDER_ID');
+  if (!FOLDER_ID) {
+    throw new Error('SNOWBALL_FOLDER_ID 未設定 → Project Settings → Script properties → Add property');
+  }
+  const SHEET_ID = props.getProperty('MACRO_SHEET_ID');
+  if (!SHEET_ID) throw new Error('MACRO_SHEET_ID 未設定');
+
+  // 1. 從 folder 找最新的 CSV（用 lastUpdated 時間）
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const allFiles = folder.getFiles();
+  let latestFile = null, latestTime = 0;
+  while (allFiles.hasNext()) {
+    const f = allFiles.next();
+    const name = f.getName().toLowerCase();
+    if (!name.endsWith('.csv') && !name.includes('snowball')) continue;
+    const t = f.getLastUpdated().getTime();
+    if (t > latestTime) { latestTime = t; latestFile = f; }
+  }
+  if (!latestFile) {
+    throw new Error('Drive folder 內找不到 CSV（folder ID: ' + FOLDER_ID + '）');
+  }
+  console.log('📂 抓到檔案: ' + latestFile.getName());
+  console.log('   修改時間: ' + latestFile.getLastUpdated());
+
+  // 2. 解析 CSV
+  const csv = latestFile.getBlob().getDataAsString('UTF-8');
+  const rows = Utilities.parseCsv(csv);
+  if (rows.length < 2) throw new Error('CSV 是空的或只有 header');
+
+  const header = rows[0].map(h => String(h).trim());
+  const colIdx = (name) => {
+    const i = header.indexOf(name);
+    if (i < 0) throw new Error('CSV 缺欄位: ' + name + '（header=' + header.join(',') + '）');
+    return i;
+  };
+  const cE = colIdx('Event'), cD = colIdx('Date'), cS = colIdx('Symbol'),
+        cP = colIdx('Price'), cQ = colIdx('Quantity'), cC = colIdx('Currency');
+
+  // 3. 加總 BUY/SELL by Symbol
+  const positions = {};  // symbol → { buys: [], sells: [], currency }
+  let skippedRows = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const event = String(r[cE] || '').trim().toUpperCase();
+    if (event !== 'BUY' && event !== 'SELL') { skippedRows++; continue; }
+
+    const symbol = String(r[cS] || '').trim();
+    if (!symbol) continue;
+    const price = parseFloat(r[cP]);
+    const qty = parseFloat(r[cQ]);
+    if (!isFinite(price) || !isFinite(qty)) continue;
+
+    const date = String(r[cD] || '').split(' ')[0];  // strip "0:00:00" 部分
+    const currency = String(r[cC] || '').trim().toUpperCase();
+
+    if (!positions[symbol]) positions[symbol] = { buys: [], sells: [], currency: currency };
+    if (event === 'BUY')  positions[symbol].buys.push({ price: price, qty: qty, date: date });
+    else                  positions[symbol].sells.push({ price: price, qty: qty, date: date });
+  }
+  console.log('   解析完成: ' + Object.keys(positions).length + ' 個 Symbol，跳過 ' + skippedRows + ' 列（CASH_IN/DIVIDEND 等）');
+
+  // 4. 計算當前持倉
+  const holdings = [];
+  for (const sym in positions) {
+    const p = positions[sym];
+    const buyQty  = p.buys.reduce((s, b) => s + b.qty, 0);
+    const sellQty = p.sells.reduce((s, b) => s + b.qty, 0);
+    const netQty  = buyQty - sellQty;
+    if (buyQty === 0) continue;
+
+    const avgCost = p.buys.reduce((s, b) => s + b.price * b.qty, 0) / buyQty;
+    const lastSellDate = p.sells.length
+      ? p.sells.map(b => b.date).sort().pop()
+      : '';
+
+    holdings.push({
+      symbol: sym,
+      currency: p.currency,
+      shares: Math.round(netQty * 1000) / 1000,
+      avg_cost: Math.round(avgCost * 100) / 100,
+      exit_at: netQty > 0.0001 ? '' : lastSellDate,
+    });
+  }
+
+  // 5. 更新 earnings_watchlist
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName('earnings_watchlist');
+  if (!sh) throw new Error('earnings_watchlist sheet 不存在 → 先跑 setupCheck()');
+  const data = sh.getDataRange().getValues();
+  const wlH = data[0];
+  const wIdx = (name) => {
+    const i = wlH.indexOf(name);
+    if (i < 0) throw new Error('watchlist 缺欄位: ' + name);
+    return i;
+  };
+  const wT = wIdx('ticker'), wM = wIdx('market'), wS = wIdx('shares'),
+        wC = wIdx('avg_cost'), wA = wIdx('added_at'), wE = wIdx('exit_at'),
+        wN = wIdx('note');
+
+  // build lookup: 砍前導 0 + 大寫，handle 006208 ↔ 6208
+  const rowByKey = {};
+  for (let i = 1; i < data.length; i++) {
+    const t = String(data[i][wT] || '').trim();
+    if (!t) continue;
+    rowByKey[normalizeTicker(t)] = i;
+  }
+
+  let updated = 0, added = 0, exited = 0, skipped = 0;
+  for (const h of holdings) {
+    const key = normalizeTicker(h.symbol);
+    const market = currencyToMarket(h.currency);
+    const rowI = rowByKey[key];
+
+    if (rowI !== undefined) {
+      sh.getRange(rowI + 1, wS + 1).setValue(h.shares);
+      sh.getRange(rowI + 1, wC + 1).setValue(h.avg_cost);
+      if (h.exit_at) {
+        const existingExit = String(data[rowI][wE] || '').trim();
+        if (!existingExit) {
+          sh.getRange(rowI + 1, wE + 1).setValue(h.exit_at);
+          exited++;
+        }
+      }
+      updated++;
+      console.log('  ✏ 更新 ' + h.symbol + ' shares=' + h.shares + ' avg_cost=' + h.avg_cost + (h.exit_at ? ' (exit ' + h.exit_at + ')' : ''));
+    } else {
+      // 新 ticker — append
+      const newRow = new Array(wlH.length).fill('');
+      newRow[wT] = h.symbol;
+      newRow[wM] = market;
+      newRow[wS] = h.shares;
+      newRow[wC] = h.avg_cost;
+      newRow[wA] = new Date().toISOString().split('T')[0];
+      newRow[wE] = h.exit_at || '';
+      newRow[wN] = '';
+      sh.appendRow(newRow);
+      added++;
+      console.log('  ➕ 新增 ' + h.symbol + ' (' + market + ') shares=' + h.shares + ' avg_cost=' + h.avg_cost);
+    }
+  }
+
+  console.log('');
+  console.log('✅ Snowball sync 完成');
+  console.log('   檔案: ' + latestFile.getName());
+  console.log('   更新: ' + updated + ' 檔');
+  console.log('   新增: ' + added + ' 檔');
+  console.log('   標記 exit: ' + exited + ' 檔');
+}
+
+function normalizeTicker(s) {
+  return String(s).trim().toUpperCase().replace(/^0+/, '');
+}
+
+function currencyToMarket(ccy) {
+  const m = String(ccy).toUpperCase();
+  if (m === 'TWD') return 'TW';
+  if (m === 'HKD') return 'HK';
+  if (m === 'USD') return 'US';
+  return m || 'US';
+}
+
+/** 測試 syncFromSnowball：只跑 dry-run，印出 Drive 找到的檔 + 解析結果，不寫 sheet */
+function testSnowballDryRun() {
+  const props = PropertiesService.getScriptProperties();
+  const FOLDER_ID = props.getProperty('SNOWBALL_FOLDER_ID');
+  if (!FOLDER_ID) { console.log('⚠ SNOWBALL_FOLDER_ID 未設定'); return; }
+
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const files = folder.getFiles();
+  let latestFile = null, latestTime = 0;
+  while (files.hasNext()) {
+    const f = files.next();
+    const t = f.getLastUpdated().getTime();
+    if (t > latestTime) { latestTime = t; latestFile = f; }
+    console.log('  • ' + f.getName() + ' (updated ' + f.getLastUpdated() + ')');
+  }
+  if (!latestFile) { console.log('⚠ folder 內無檔案'); return; }
+  console.log('\n📂 將處理: ' + latestFile.getName());
+
+  const csv = latestFile.getBlob().getDataAsString('UTF-8');
+  const rows = Utilities.parseCsv(csv);
+  console.log('   總列數: ' + rows.length + '（含 header）');
+  console.log('   Header: ' + rows[0].join(' | '));
+  console.log('   前 3 筆:');
+  for (let i = 1; i <= Math.min(3, rows.length - 1); i++) {
+    console.log('     ' + rows[i].join(' | '));
+  }
 }
