@@ -1,0 +1,8 @@
+flask==3.0.3
+gunicorn==22.0.0
+google-api-python-client==2.140.0
+google-auth==2.34.0
+google-auth-oauthlib==1.2.1
+google-cloud-bigquery==3.25.0
+google-cloud-secret-manager==2.20.2
+tenacity==9.0.0

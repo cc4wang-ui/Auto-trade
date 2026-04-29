@@ -2,6 +2,14 @@
 .DS_Store
 Thumbs.db
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
 # Editors
 .idea/
 .vscode/
@@ -15,3 +23,9 @@ secrets/
 .env*
 *credentials*
 *webhook*url*
+
+# YouTube ETL — never commit OAuth tokens or service account keys
+youtube-etl/**/client_secret*.json
+youtube-etl/**/refresh_token*
+youtube-etl/**/sa-key*.json
+youtube-etl/**/.env*
