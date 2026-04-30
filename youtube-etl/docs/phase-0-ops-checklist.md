@@ -1,6 +1,6 @@
 # Phase 0 Ops Checklist
 
-Hand this to **Takashi Hayashi** to execute against the existing 17LIVE GCP project. None of these need code changes — they're console + CLI ops. Estimated total: 1 day of work + 1-2 weeks of waiting for the YouTube quota raise.
+Deployment runbook executed by **Cross + Claude Code pair** against the existing 17LIVE GCP project (Cross runs gcloud + GCP Console, Claude reads logs and gives the next command). None of these need code changes — they're console + CLI ops. Estimated total: 1 day of work + 1-2 weeks of waiting for the YouTube quota raise. See `docs/handoff/decisions.md` D-001 for the builder assignment history.
 
 > **GCP project**: `project-7f1094dc-792a-4a86-85d` (TikTok PoC lives here; reuse the same project for YouTube ETL)
 > **BQ location**: `asia-northeast1` (verify against TikTok dataset's location and match)
@@ -95,7 +95,7 @@ mikai has a shared Google account that has admin access to all 50 channels. We n
 - Name: `youtube-etl-mikai-desktop`
 - Download JSON (contains client_id and client_secret)
 
-### 4b. Generate refresh token (one-off, on Takashi's laptop)
+### 4b. Generate refresh token (one-off, on Cross's laptop — must run in a browser session logged into the mikai shared account)
 
 ```bash
 pip install google-auth-oauthlib
@@ -248,7 +248,7 @@ Pass criteria:
 ## Step 8 — Monitoring alerts (when promoting to prod)
 
 Add Cloud Monitoring alerts on:
-1. `quota_log` daily sum > 80% of approved quota → email Takashi
+1. `quota_log` daily sum > 80% of approved quota → email on-call (Cross by default)
 2. `analytics_daily` row count = 0 for any channel for 2 consecutive days → likely OAuth token revoked
 3. Cloud Run 5xx error rate > 1% in any 5-minute window
 4. Live poll job 5xx rate > 5% (more tolerant — live broadcasts come and go)

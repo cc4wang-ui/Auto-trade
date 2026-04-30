@@ -20,7 +20,7 @@
 
 ### `ERROR: Permission denied on resource project ...`
 **原因**：Cross 帳號沒有 project 權限。
-**修**：找 Takashi 或 IT 加 `roles/owner`，或最少這 5 個：
+**修**：找 17LIVE GCP admin（Takashi 是現任 admin 之一）加 `roles/owner`，或最少這 5 個：
 - `roles/bigquery.admin`
 - `roles/secretmanager.admin`
 - `roles/run.admin`
@@ -197,10 +197,10 @@ gcloud run services update youtube-etl-ingest --timeout=3600 --region="$REGION"
 
 | 文件 | 寫了什麼 | 實際 |
 |---|---|---|
-| `youtube-etl/README.md` line 47 | "mart 7 tables" | DDL 實際 8 張（fact 3 + mart_kpi 3 + dim 2） |
-| `phase-0-ops-checklist.md` Step 1 | "youtube_mart 7 tables" | 同上，8 張 |
-| `youtube-etl/README.md` line 8 | `/root/.claude/plans/youtube-etl-lexical-bonbon.md` | 路徑是 Claude session 內部，不在 repo。Cross 要的設計細節都在本 handoff 資料夾 |
-| `youtube-etl/README.md` line 5 | "Takashi takes ownership" | Cross 自己當 builder（4/29 改變），Takashi 不再主導 |
+| `youtube-etl/README.md` "mart 7 tables" | DDL 實際 8 張（fact 3 + mart_kpi 3 + dim 2） | 待 doc 修 |
+| `phase-0-ops-checklist.md` Step 1 "youtube_mart 7 tables" | 同上，8 張 | 待 doc 修 |
+| `youtube-etl/README.md` 提到 `/root/.claude/plans/youtube-etl-lexical-bonbon.md` | 路徑是 Claude session 內部，不在 repo | 真實設計細節在 `docs/handoff/` |
+| 任何文件提到 "Takashi" 是 owner / builder | Cross 是 builder（D-001，2026-04-29 起） | 看 `docs/handoff/decisions.md` D-001 |
 
 ---
 

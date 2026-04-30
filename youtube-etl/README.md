@@ -1,8 +1,9 @@
 # YouTube ETL (17LIVE / mikai)
 
 > **Note**: this scaffold lives in the `cc4wang-ui/auto-trade` repo on branch
-> `claude/youtube-etl-review-i4TIH` as a **staging area**. Once Takashi takes ownership,
-> migrate to a 17LIVE-internal repository before production deploy.
+> `claude/youtube-etl-review-i4TIH` as a **staging area**. **Cross is the active builder**
+> (Cross + Claude Code as pair); see `docs/handoff/decisions.md` D-001. Migrate to a
+> 17LIVE-internal repository before production deploy.
 
 Re-architected on top of 宮前 san's GCP design + TikTok PoC. See plan at
 `/root/.claude/plans/youtube-etl-lexical-bonbon.md` for the full strategy.
@@ -39,7 +40,7 @@ youtube-etl/
 │   ├── Dockerfile
 │   └── requirements.txt
 └── docs/
-    └── phase-0-ops-checklist.md      ← step-by-step deployment runbook for Takashi
+    └── phase-0-ops-checklist.md      ← step-by-step deployment runbook (Cross + Claude pair)
 ```
 
 ## What this delivers (Phases 0-2 of the plan)
@@ -53,7 +54,7 @@ youtube-etl/
   - Daily Analytics API pull → revenue + uniqueViewers (the metrics Data API can't give)
 - ✅ Quota accounting in `quota_log` so we know exactly where units go
 - ✅ OAuth via Secret Manager (mikai shared account → all 50 channels in one token)
-- ✅ Phase 0 ops runbook for Takashi (10 steps, 1 day of work + 1-2 weeks waiting on Google)
+- ✅ Phase 0 ops runbook (10 steps, 1 day of work + 1-2 weeks waiting on Google)
 
 ## What's NOT here yet (Phases 3-5)
 

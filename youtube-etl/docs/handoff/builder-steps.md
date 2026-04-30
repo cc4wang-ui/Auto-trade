@@ -38,7 +38,7 @@ gcloud config set project project-7f1094dc-792a-4a86-85d
 gcloud config get-value project   # 確認顯示同一個 ID
 ```
 
-回 permission denied → 跟 Takashi 或 IT 要 `roles/owner`，或至少：
+回 permission denied → 跟 17LIVE GCP admin（Takashi 是現任 admin 之一）要 `roles/owner`，或至少：
 - `roles/bigquery.admin`
 - `roles/secretmanager.admin`
 - `roles/run.admin`
@@ -136,6 +136,8 @@ gcloud services enable youtube.googleapis.com youtubeanalytics.googleapis.com
 
 **Cross 親自做，因為要登入 mikai 共用 admin Google account**。Claude 沒辦法替你登。
 
+> **Working sample 參考**：宮前 san 的 GAS POC（`Youtube数値取得コード`，Drive 內）已經跑通同一條 OAuth + Analytics API 路徑。卡關時可參照 GAS 的 `access_type=offline` + `prompt=consent` 組合，那是拿到 refresh token 的關鍵。詳情：`decisions.md` D-004。
+
 ### 4.1 建 OAuth client（10 分鐘）
 - Console **登入 mikai 共用 admin ID**（不是 Cross 個人帳號）
 - `APIs & Services` → `Credentials` → `+ CREATE CREDENTIALS` → `OAuth client ID`
@@ -220,11 +222,13 @@ gcloud run deploy youtube-etl-ingest \
 
 ### 6.1 把其他 49 個關掉
 
+> **為什麼選獅子神レオナ**：宮前 san 的 GAS POC 已經跑通這個 channel 拿 Analytics 數字（`decisions.md` D-004），所以 OAuth scope + monetization 都已知 OK。其他 channel 第一次跑可能踩到 ownership / scope 問題，smoke test 用已知能跑的 channel 排除變數。
+
 BQ Console 跑：
 ```sql
 UPDATE `project-7f1094dc-792a-4a86-85d.youtube_mart.dim_talent`
 SET is_active = FALSE
-WHERE channel_id != 'UC4OeUf_KfYRrwksschtRYow';   -- 留 花鋏キョウ 一個試
+WHERE channel_id != 'UCB1s_IdO-r0nUkY2mXeti-A';   -- 留 獅子神レオナ 一個試（宮前 POC 已驗證）
 ```
 
 ### 6.2 手動 trigger daily
@@ -254,7 +258,7 @@ GROUP BY api_method;
 -- 注意：handler 會 backfill 過去 7 天，所以這裡看到 7 row（不是 1 row）
 SELECT report_date, views, unique_viewers, estimated_revenue_usd, ingest_run_id
 FROM `project-7f1094dc-792a-4a86-85d.youtube_raw.analytics_daily`
-WHERE channel_id = 'UC4OeUf_KfYRrwksschtRYow'
+WHERE channel_id = 'UCB1s_IdO-r0nUkY2mXeti-A'
 ORDER BY report_date DESC;
 ```
 
@@ -267,7 +271,7 @@ ORDER BY report_date DESC;
 **步驟**：
 
 1. 用 mikai 共用 admin 登入 https://studio.youtube.com
-2. 切到 smoke test 用的那個 channel（花鋏キョウ）
+2. 切到 smoke test 用的那個 channel（獅子神レオナ）
 3. 左欄 `Analytics` → `Advanced mode` → 時間範圍選**前天**（`CURRENT_DATE() - 2`，因為 Analytics 數字會 backfill，前天比昨天穩）
 4. 記下 4 個數字：**Views / Watch time (hours) / Likes / Comments**
 5. 跑這個 BQ query，跟 Studio 對：
@@ -282,7 +286,7 @@ SELECT
   comments                           AS bq_comments,
   estimated_revenue_usd              AS bq_revenue
 FROM `project-7f1094dc-792a-4a86-85d.youtube_raw.analytics_daily`
-WHERE channel_id = 'UC4OeUf_KfYRrwksschtRYow'
+WHERE channel_id = 'UCB1s_IdO-r0nUkY2mXeti-A'
   AND report_date = CURRENT_DATE() - 2;
 ```
 

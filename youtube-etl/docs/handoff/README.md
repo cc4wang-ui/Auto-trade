@@ -40,11 +40,14 @@
 | Phase | **Phase 0 code 已 ship，等部署 + quota raise** |
 
 **已交付**（在 PR #3 裡）：
-- BQ DDL（raw 6 tables + mart 7 tables，idempotent）
+- BQ DDL（raw 6 tables + mart 8 tables，idempotent）
 - `dim_talent` seed CSV + load script（50 talents）
 - Cloud Run ingest service（Python 3.12 / Flask / 4 endpoints）
 - Quota tracker、OAuth secret loader、retry 邏輯、純 transform 函式
 - Phase 0 ops checklist（Console + gcloud 跑得起來的指令）
+- **Vendor 報價 audit 後補的 2 個 gap**（commit `e5eb1ef`）：
+  - `analytics_daily` 7 天 backfill + staging-table MERGE upsert（idempotent）
+  - YouTube Studio 對帳 step（`builder-steps.md` STEP 6.4，是 STEP 7 全 50 開的 gate）
 
 **未交付**（待 Phase 1+）：
 - Mart 層 rollup SQL（comment velocity、daily/weekly/monthly KPI）
@@ -66,6 +69,7 @@
 | 看 BQ 表長什麼樣、欄位意義 | `data-model.md` |
 | 部署或 smoke test 出錯 | `errors.md` |
 | 規劃 Phase 2-5 | `roadmap.md` |
+| **不要重新討論的決策**（vendor 不簽 / 宮前 GAS POC / Cross 是 builder / 不在 scope 的東西） | `decisions.md` |
 
 ## 7. 原始參考（不在 handoff 資料夾內，但同 repo）
 
@@ -83,11 +87,12 @@
 
 ## 8. 你（接手 Claude）的第一步
 
-1. 跟 Cross 確認他現在卡在哪個 step（`builder-steps.md` STEP 1-8 或 Phase 1+）
-2. 如果他在 STEP 1-2 → 等他貼 GCP project ID + BQ location 回來再繼續
-3. 如果他在 STEP 3 quota raise → 提醒他送 form，期間平行做 STEP 4-5
-4. 如果他在 STEP 4 OAuth → 截圖式逐步引導（OAuth flow 是非工程師最容易卡的點）
-5. 如果他在 STEP 7 smoke test → 看 quota_log + videos_snapshot 結果，決定是放全 50ch 還是先修
-6. 如果 Phase 0 已過 → 讀 `roadmap.md`，從 Phase 2 mart SQL 開始
+1. **先讀 `decisions.md`**（5 條鎖定決策，避免 re-debate）
+2. 跟 Cross 確認他現在卡在哪個 step（`builder-steps.md` STEP 1-8 或 Phase 1+）
+3. 如果他在 STEP 1-2 → 等他貼 GCP project ID + BQ location 回來再繼續
+4. 如果他在 STEP 3 quota raise → 提醒他送 form，期間平行做 STEP 4-5
+5. 如果他在 STEP 4 OAuth → 截圖式逐步引導（OAuth flow 是非工程師最容易卡的點，可參照宮前 GAS POC）
+6. 如果他在 STEP 6 smoke test → 看 quota_log + videos_snapshot 結果，**6.4 YT Studio 對帳過了才放全 50ch**
+7. 如果 Phase 0 已過 → 讀 `roadmap.md`，從 Phase 2 mart SQL 開始
 
 **重要**：Cross 任何錯誤訊息都會直接貼整段給你，**不要叫他自己 debug**。看 log → 給下一條指令。
