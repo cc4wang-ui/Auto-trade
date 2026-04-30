@@ -316,7 +316,13 @@ var int[]   zzD = array.new_int(0)          // 1=低, -1=高
 // 加入新 pivot（合併成交替序列）
 if not na(ph)
     int sz = array.size(zzD)
-    if sz == 0 or array.get(zzD, 0) != -1
+    bool addNew = false
+    if sz == 0
+        addNew := true
+    else
+        if array.get(zzD, 0) != -1
+            addNew := true
+    if addNew
         array.unshift(zzP, ph)
         array.unshift(zzB, phBar)
         array.unshift(zzD, -1)
@@ -327,7 +333,13 @@ if not na(ph)
             array.set(zzB, 0, phBar)
 if not na(pl)
     int sz2 = array.size(zzD)
-    if sz2 == 0 or array.get(zzD, 0) != 1
+    bool addNew2 = false
+    if sz2 == 0
+        addNew2 := true
+    else
+        if array.get(zzD, 0) != 1
+            addNew2 := true
+    if addNew2
         array.unshift(zzP, pl)
         array.unshift(zzB, plBar)
         array.unshift(zzD, 1)
