@@ -139,17 +139,18 @@ d1_direction = "long_ok"   if 燈號=綠燈
              = "no_entry"  if 燈號=黃燈
 
 # 從 read_v10_state.states[0]
-if state 不存在 OR age_sec > 5400 (>90 min stale):
+if state 不存在 OR state.timestamp_invalid OR state.age_sec is None OR state.age_sec > 5400 (>90 min stale):
     d2_pattern_quality = null
     d3_volume_obv = null
     needs_tradingview_check = true
     data_quality.warnings += "v10_state stale or missing (age={X}s)"
 else:
-    d2_pattern_quality = state.quality   # 數字，例 78
-    d2_pass            = state.quality >= 70
+    d2_pattern_quality = state.quality   # 數字，例 78；無型態時 Pine 送 0
+    d2_pass            = state.quality >= 70 and state.pattern != "none"
     d3_volume_obv      = state.obv_direction  # "up" / "down" / "flat"
-    d3_pass            = (d1_direction == "long_ok" and obv == "up")
-                      OR (d1_direction == "short_ok" and obv == "down")
+    # flat = OBV 中性，視為「未對齊」不算 pass，但也不會渲染成 ❌（GAS 端用 ⚪）
+    d3_pass            = (d1_direction == "long_ok"  and d3_volume_obv == "up") \
+                      or (d1_direction == "short_ok" and d3_volume_obv == "down")
     needs_tradingview_check = false
 
 d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）

@@ -103,31 +103,40 @@ alertcondition(shortSignal, title="V10 做空訊號", message="{{strategy.order.
 
 ### Step 4：v10 State Snapshot（給 macro routine 自動取得 D2/D3）
 
-加在 `strategy_v10.pine` 最末（不影響 strategy 邏輯，純 push 當下狀態）：
+加在 `strategy_v10.pine` 最末（不影響 strategy 邏輯，純 push 當下狀態）。
+這段是**自包含**的：不依賴 `obvUp`/`obvDown` 等 v10 內部變數，OBV 自己算。
 
 ```pine
 // ═══ Daily snapshot（每 bar close 把 D2/D3 推給 GAS，macro routine 取代手動 TV check）═══
 if useWebhook and barstate.isconfirmed
-    string obvDir = obvUp ? "up" : obvDown ? "down" : "flat"
+    // OBV 方向自己算（self-contained，不依賴 v10 內部命名）
+    float snapObv     = ta.obv
+    float snapObvSma  = ta.sma(snapObv, 20)
+    string snapObvDir = na(snapObv) or na(snapObvSma) ? "flat" :
+                       snapObv > snapObvSma ? "up" :
+                       snapObv < snapObvSma ? "down" : "flat"
+
+    // 沒型態時 topName=na、topQ=na → 必須 fallback，不然 JSON 會壞掉（"NaN" 不是 valid number）
+    string snapPattern = na(topName) ? "none" : topName
+    float  snapQ       = na(topQ) ? 0.0 : topQ
+    float  snapAtr     = na(atr14) ? 0.0 : atr14
+
     string snapMsg = '{"secret":"' + pineSecret + '",' +
        '"ticker":"' + syminfo.ticker + '",' +
        '"timeframe":"' + timeframe.period + '",' +
        '"price":' + str.tostring(close, "#.##") + ',' +
-       '"pattern":"' + topName + '",' +
-       '"quality":' + str.tostring(topQ, "#") + ',' +
-       '"obv_direction":"' + obvDir + '",' +
-       '"atr":' + str.tostring(atr14, "#.##") + ',' +
+       '"pattern":"' + snapPattern + '",' +
+       '"quality":' + str.tostring(snapQ, "#") + ',' +
+       '"obv_direction":"' + snapObvDir + '",' +
+       '"atr":' + str.tostring(snapAtr, "#.##") + ',' +
        '"timestamp":"' + str.tostring(time, "#") + '"}'
     alert(snapMsg, alert.freq_once_per_bar_close)
 ```
 
-⚠ 注意 `obvUp` / `obvDown` 是 v10 既有變數，若命名不同請對照 strategy 主檔調整。
-若 v10 主檔沒有現成的 OBV up/down 旗標，加在 layer 2（Volume / OBV 計算）後：
-
-```pine
-obvUp   = ta.obv > ta.sma(ta.obv, 20)
-obvDown = ta.obv < ta.sma(ta.obv, 20)
-```
+關鍵防呆：
+- `na(topName)` / `na(topQ)` 必須 fallback — 沒型態的 K 棒會送 `pattern="none", quality=0`，GAS 會解析成 `quality=0` 視為 D2 fail（合理）
+- `obv_direction="flat"` 時 GAS 渲染 ⚪（中性），不會誤判成 ❌
+- `topName` / `topQ` / `atr14` 變數名必須對得上 v10 主檔（雙重底/反轉頭肩底/上升三角…的 detector 變數）。若你 v10 命名不同，把上面 3 個變數換成你的版本
 
 ---
 

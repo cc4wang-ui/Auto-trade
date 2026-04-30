@@ -423,7 +423,15 @@ function handleV10Signal(e) {
 // 不發 Telegram，只寫進 v10_state sheet（upsert by ticker）給 macro routine 拉
 // ============================================================
 function handleV10State(e) {
+  const lock = LockService.getScriptLock();
+  let lockAcquired = false;
+
   try {
+    if (!lock.tryLock(5000)) {
+      return jsonResp({ ok: false, error: 'lock_timeout' });
+    }
+    lockAcquired = true;
+
     if (!e.postData || !e.postData.contents) {
       return jsonResp({ ok: false, error: 'no_body' });
     }
@@ -450,6 +458,12 @@ function handleV10State(e) {
       return jsonResp({ ok: false, error: 'missing_fields: ' + missing.join(', ') });
     }
 
+    const priceNum = Number(payload.price);
+    const qualityNum = Number(payload.quality);
+    if (!isFinite(priceNum) || !isFinite(qualityNum)) {
+      return jsonResp({ ok: false, error: 'non_numeric_price_or_quality' });
+    }
+
     const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
     const ss = SpreadsheetApp.openById(sheetId);
     let sh = ss.getSheetByName('v10_state');
@@ -459,19 +473,19 @@ function handleV10State(e) {
     }
 
     const ticker = String(payload.ticker);
-    const now = new Date();
+    const atrNum = (payload.atr === undefined || payload.atr === null || !isFinite(Number(payload.atr)))
+      ? '' : Number(payload.atr);
     const row = [
       ticker,
-      now,
+      new Date(),
       String(payload.timeframe || ''),
-      Number(payload.price),
+      priceNum,
       String(payload.pattern),
-      Number(payload.quality),
+      qualityNum,
       String(payload.obv_direction || 'flat'),
-      payload.atr === undefined || payload.atr === null ? '' : Number(payload.atr)
+      atrNum
     ];
 
-    // upsert by ticker
     const lastRow = sh.getLastRow();
     let targetRow = -1;
     if (lastRow >= 2) {
@@ -494,6 +508,8 @@ function handleV10State(e) {
   } catch (err) {
     console.error('[v10_state]', err.message, err.stack);
     return jsonResp({ ok: false, error: err.message });
+  } finally {
+    if (lockAcquired) lock.releaseLock();
   }
 }
 
@@ -539,11 +555,13 @@ function handleReadV10State(e) {
       .filter(r => String(r[0] || '').trim() !== '')
       .map(r => {
         const ts = r[1] instanceof Date ? r[1] : new Date(r[1]);
-        const ageSec = Math.round((nowMs - ts.getTime()) / 1000);
+        const tsMs = ts.getTime();
+        const tsValid = isFinite(tsMs);
         return {
           ticker: String(r[0]),
-          timestamp: ts.toISOString(),
-          age_sec: ageSec,
+          timestamp: tsValid ? ts.toISOString() : null,
+          age_sec: tsValid ? Math.round((nowMs - tsMs) / 1000) : null,
+          timestamp_invalid: !tsValid,
           timeframe: String(r[2] || ''),
           price: r[3] === '' || r[3] === null ? null : Number(r[3]),
           pattern: String(r[4] || ''),
@@ -1163,7 +1181,7 @@ function formatAnalystReport(p) {
       msg += ` · D2 Q=${fmt(gates.d2_pattern_quality, 0)}${gates.d2_pass ? ' ✅' : ' ❌'}`;
     }
     if (gates.d3_volume_obv) {
-      msg += ` · D3 OBV ${escapeHtml(String(gates.d3_volume_obv))}${gates.d3_pass ? ' ✅' : ' ❌'}`;
+      msg += ` · D3 OBV ${escapeHtml(String(gates.d3_volume_obv))} ${obvIcon(gates.d3_volume_obv, gates.d3_pass)}`;
     }
   }
   msg += `\n`;
@@ -1280,7 +1298,7 @@ function formatLegacyMacroMessage(p) {
       msg += `D2 型態 Q=${fmt(gates.d2_pattern_quality, 0)} ${gates.d2_pass ? '✅' : '❌'}\n`;
     }
     if (gates.d3_volume_obv) {
-      msg += `D3 OBV ${escapeHtml(String(gates.d3_volume_obv))} ${gates.d3_pass ? '✅' : '❌'}\n`;
+      msg += `D3 OBV ${escapeHtml(String(gates.d3_volume_obv))} ${obvIcon(gates.d3_volume_obv, gates.d3_pass)}\n`;
     }
   }
   msg += `\n`;
@@ -1349,6 +1367,13 @@ function gateIcon(state) {
     'blocked': '⏳'
   };
   return map[state] || '?';
+}
+
+/** D3 圖示：flat=⚪（中性），對齊 D1 方向=✅，反向=❌ */
+function obvIcon(direction, pass) {
+  const dir = String(direction || '').toLowerCase();
+  if (dir === 'flat' || dir === '') return '⚪';
+  return pass ? '✅' : '❌';
 }
 
 function jsonResp(obj) {
