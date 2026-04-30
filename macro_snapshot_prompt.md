@@ -118,22 +118,62 @@ aaii_bulls   = 同上
 11. **穩定度**：成長軸一致性 %
 12. **燈號**：穩定度<40% 強制黃 / Override 紅 / >+15 綠 / <-20 紅 / 其他黃
 
-## Step 5：v10 四門狀態（部分）
+## Step 5：v10 四門狀態（D1/D2/D3/D4 全自動）
 
-只能算 D1（從燈號推）和 D4（從 Sheet 查上次訊號時間）。
-D2/D3 要 TradingView 即時 chart context，雲端算不了 → 標記 `needs_tradingview_check: true`。
+D1 從燈號推、D4 從 Sheet 查上次訊號、**D2/D3 從 `read_v10_state` 拉 Pine snapshot**（取代手動進 TV check）。
+
+### 5.1 拉 Pine snapshot
+
+```
+POST {GAS_WEBHOOK_URL_BASE}?endpoint=read_v10_state
+{ "token": "{ROUTINE_TOKEN}", "ticker": "TAIFEX:TXF1!" }
+```
+
+回傳 `states[0]` 包含 `age_sec / pattern / quality / obv_direction`。
+
+### 5.2 推導四門
 
 ```
 d1_direction = "long_ok"   if 燈號=綠燈
              = "short_ok"  if 燈號=紅燈（含 Override）
              = "no_entry"  if 燈號=黃燈
 
+# 從 read_v10_state.states[0]
+if state 不存在 OR age_sec > 5400 (>90 min stale):
+    d2_pattern_quality = null
+    d3_volume_obv = null
+    needs_tradingview_check = true
+    data_quality.warnings += "v10_state stale or missing (age={X}s)"
+else:
+    d2_pattern_quality = state.quality   # 數字，例 78
+    d2_pass            = state.quality >= 70
+    d3_volume_obv      = state.obv_direction  # "up" / "down" / "flat"
+    d3_pass            = (d1_direction == "long_ok" and obv == "up")
+                      OR (d1_direction == "short_ok" and obv == "down")
+    needs_tradingview_check = false
+
 d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）
             = "blocked"  if 仍在冷卻中
-
-# 上次訊號時間從 Sheet 讀（GAS endpoint = read_last_signal）
-# 若沒辦法讀 → 假設 "ok"
+# 上次訊號時間從 Sheet 讀；若沒辦法讀 → 假設 "ok"
 ```
+
+### 5.3 payload 帶回 GAS 的 `v10_gates` 欄位
+
+```json
+"v10_gates": {
+  "d1_direction": "no_entry",
+  "d2_pattern_quality": 78,
+  "d2_pass": true,
+  "d3_volume_obv": "up",
+  "d3_pass": false,
+  "d4_cooldown": "ok",
+  "needs_tradingview_check": false,
+  "v10_state_age_sec": 312,
+  "last_signal_at": null
+}
+```
+
+`needs_tradingview_check=false` → Telegram 訊息 footer 不再印「D2/D3 看 TV」，改印實際 D2/D3 結果。
 
 ## Step 5.4：拉今日新聞脈絡（必做，餵 `news_pulse`）
 

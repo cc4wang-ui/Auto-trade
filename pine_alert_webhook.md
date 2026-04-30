@@ -101,9 +101,39 @@ alertcondition(shortSignal, title="V10 做空訊號", message="{{strategy.order.
 
 `{{strategy.order.alert_message}}` 會被 TradingView 替換成 Step 2 拼好的完整 JSON。
 
+### Step 4：v10 State Snapshot（給 macro routine 自動取得 D2/D3）
+
+加在 `strategy_v10.pine` 最末（不影響 strategy 邏輯，純 push 當下狀態）：
+
+```pine
+// ═══ Daily snapshot（每 bar close 把 D2/D3 推給 GAS，macro routine 取代手動 TV check）═══
+if useWebhook and barstate.isconfirmed
+    string obvDir = obvUp ? "up" : obvDown ? "down" : "flat"
+    string snapMsg = '{"secret":"' + pineSecret + '",' +
+       '"ticker":"' + syminfo.ticker + '",' +
+       '"timeframe":"' + timeframe.period + '",' +
+       '"price":' + str.tostring(close, "#.##") + ',' +
+       '"pattern":"' + topName + '",' +
+       '"quality":' + str.tostring(topQ, "#") + ',' +
+       '"obv_direction":"' + obvDir + '",' +
+       '"atr":' + str.tostring(atr14, "#.##") + ',' +
+       '"timestamp":"' + str.tostring(time, "#") + '"}'
+    alert(snapMsg, alert.freq_once_per_bar_close)
+```
+
+⚠ 注意 `obvUp` / `obvDown` 是 v10 既有變數，若命名不同請對照 strategy 主檔調整。
+若 v10 主檔沒有現成的 OBV up/down 旗標，加在 layer 2（Volume / OBV 計算）後：
+
+```pine
+obvUp   = ta.obv > ta.sma(ta.obv, 20)
+obvDown = ta.obv < ta.sma(ta.obv, 20)
+```
+
 ---
 
 ## TradingView Alert 設定
+
+### A. 進場訊號 Alert（既有，2 個：long + short）
 
 1. 套用 v10 strategy 到 TXF1! 60 分鐘圖
 2. **在 Settings → Webhook 群組填 secret**（與 GAS PINE_ALERT_SECRET 相同字串）
@@ -113,6 +143,21 @@ alertcondition(shortSignal, title="V10 做空訊號", message="{{strategy.order.
 6. **Message: 留 `{{strategy.order.alert_message}}`，不要改**
 7. **Webhook URL**: `https://script.google.com/macros/s/{你的 deployment id}/exec?endpoint=v10_signal`
 8. Expiration: ⚠ Essential 60 天上限，設日曆每 2 個月重設
+
+### B. State Snapshot Alert（新增，1 個）
+
+給 macro routine 自動取得 D2/D3，免 Cross 手動進 TV 看圖。
+
+1. 同一張 TXF1! 60 分鐘圖
+2. Add alert
+3. **Condition**: 選 `小台宏觀策略 v10.0` → **`Any alert() function call`**（注意：不是「V10 做多訊號」那種 alertcondition）
+4. Trigger: Once Per Bar Close
+5. Message: 留空（Step 4 的 `alert()` 會把 JSON 帶過來）
+6. **Webhook URL**: `https://script.google.com/macros/s/{你的 deployment id}/exec?endpoint=v10_state` ← endpoint 不一樣
+7. Expiration: 60 天上限，**和進場 alert 一起重設**
+
+⚠ 共 3 個 active alerts（long + short + snapshot），Essential 20 格還有 17 格剩餘。
+⚠ 若 TradingView 連續 >90 分鐘沒推 snapshot（網路或 TV 掛），routine 會自動 fallback 到 `needs_tradingview_check: true`，不阻斷推播。
 
 ---
 
@@ -182,6 +227,8 @@ openssl rand -hex 16
 | GAS log 看到 "no_body" | TradingView Message 欄位空，沒填 `{{strategy.order.alert_message}}` |
 | GAS log 看到 "invalid_json" | Pine 拼 JSON 時某欄位含未 escape 的引號（檢查 `topName` 是否含特殊字元） |
 | Telegram 連續收到 3-5 次相同訊號 | TradingView Alert frequency 沒設 "Once Per Bar Close" |
+| `v10_state` sheet 沒更新 | 1) Snapshot alert 沒設成 "Any alert() function call" 2) Webhook URL 沒含 `?endpoint=v10_state` 3) Pine `useWebhook` 設成 false |
+| Routine 一直 fallback `needs_tradingview_check: true` | `read_v10_state` 回傳 `age_sec > 5400` → 檢查 snapshot alert 是否還在跑（60 天過期重設？）|
 
 ---
 
@@ -214,6 +261,67 @@ openssl rand -hex 16
 | `macro_score` / `timestamp` | ⚠ | 純參考 |
 
 GAS handler `handleV10Signal()` 解析欄位、驗證 secret、推 Telegram、寫 log。
+
+---
+
+## State Snapshot Payload schema（endpoint = `v10_state`）
+
+```json
+{
+  "secret": "string (32 hex chars)",
+  "ticker": "TAIFEX:TXF1!",
+  "timeframe": "60",
+  "price": 21820.00,
+  "pattern": "雙重底",
+  "quality": 78,
+  "obv_direction": "up",
+  "atr": 145.50,
+  "timestamp": "1714281600000"
+}
+```
+
+| 欄位 | 必填 | 說明 |
+|---|:---:|---|
+| `secret` / `ticker` / `price` / `pattern` / `quality` | ✅ | 缺一即拒 |
+| `obv_direction` | ⚠ | `"up"` / `"down"` / `"flat"`，沒帶 fallback 到 `"flat"` |
+| `timeframe` / `atr` / `timestamp` | ⚠ | 純參考 |
+
+GAS handler `handleV10State()`：
+- 不發 Telegram（避免每 60 分鐘狂推）
+- upsert 到 `v10_state` sheet（一個 ticker 一列，新值覆蓋舊值）
+- macro routine 用 `read_v10_state` endpoint 拉這張 sheet 的最新值
+
+### Routine 端如何用
+
+```text
+POST {GAS_WEBHOOK_URL_BASE}?endpoint=read_v10_state
+{ "token": "{ROUTINE_TOKEN}", "ticker": "TAIFEX:TXF1!" }
+```
+
+回傳：
+
+```json
+{
+  "ok": true,
+  "states": [{
+    "ticker": "TAIFEX:TXF1!",
+    "timestamp": "2026-04-30T03:00:00.000Z",
+    "age_sec": 312,
+    "timeframe": "60",
+    "price": 21820,
+    "pattern": "雙重底",
+    "quality": 78,
+    "obv_direction": "up",
+    "atr": 145.5
+  }],
+  "count": 1
+}
+```
+
+Routine 端決策（見 `macro_snapshot_prompt.md` Step 5）：
+- `age_sec > 5400`（>90 min）→ 視為 stale，`needs_tradingview_check: true` 不變
+- `quality >= 70` → D2 pass
+- D1=long_ok 且 `obv_direction == "up"` → D3 pass；D1=short_ok 且 `obv_direction == "down"` → D3 pass
 
 ---
 

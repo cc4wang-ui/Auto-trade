@@ -25,6 +25,8 @@ function doPost(e) {
 
   if (endpoint === 'macro_snapshot')  return handleMacroSnapshot(e);
   if (endpoint === 'v10_signal')      return handleV10Signal(e);
+  if (endpoint === 'v10_state')       return handleV10State(e);
+  if (endpoint === 'read_v10_state')  return handleReadV10State(e);
   if (endpoint === 'earnings_report') return handleEarningsReport(e);
   if (endpoint === 'read_watchlist')  return handleReadWatchlist(e);
 
@@ -69,7 +71,7 @@ function setupCheck() {
   const sheetId = props.getProperty('MACRO_SHEET_ID');
   try {
     const ss = SpreadsheetApp.openById(sheetId);
-    const sheets = ['macro_log', 'signal_log', 'dedup_state', 'earnings_watchlist', 'earnings_log'];
+    const sheets = ['macro_log', 'signal_log', 'dedup_state', 'earnings_watchlist', 'earnings_log', 'v10_state'];
     sheets.forEach(name => {
       let sh = ss.getSheetByName(name);
       if (!sh) {
@@ -114,6 +116,9 @@ function setupCheck() {
           sh.appendRow(['timestamp', 'ticker', 'type', 'earnings_date',
                         'eps_actual', 'eps_estimate', 'rev_actual', 'rev_estimate',
                         'price_reaction_pct', 'summary_text']);
+        } else if (name === 'v10_state') {
+          // Pine 每 bar close 推一筆 D2/D3 snapshot；upsert by ticker（一個 ticker 一列）
+          sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality', 'obv_direction', 'atr']);
         }
       } else {
         console.log(`✅ Sheet "${name}" OK`);
@@ -408,6 +413,156 @@ function handleV10Signal(e) {
     return jsonResp({ ok: false, error: err.message });
   } finally {
     if (lockAcquired) lock.releaseLock();
+  }
+}
+
+
+// ============================================================
+// v10 State Snapshot endpoint
+// Pine 每 bar close 推一筆 D2/D3 snapshot（pattern / quality / OBV）
+// 不發 Telegram，只寫進 v10_state sheet（upsert by ticker）給 macro routine 拉
+// ============================================================
+function handleV10State(e) {
+  try {
+    if (!e.postData || !e.postData.contents) {
+      return jsonResp({ ok: false, error: 'no_body' });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(e.postData.contents);
+    } catch (err) {
+      console.warn('[v10_state] Invalid JSON:', e.postData.contents);
+      return jsonResp({ ok: false, error: 'invalid_json' });
+    }
+
+    const expectedSecret = PropertiesService.getScriptProperties().getProperty('PINE_ALERT_SECRET');
+    if (!expectedSecret) {
+      return jsonResp({ ok: false, error: 'server_misconfigured' });
+    }
+    if (payload.secret !== expectedSecret) {
+      console.warn('[v10_state] Invalid secret');
+      return jsonResp({ ok: false, error: 'unauthorized' });
+    }
+
+    const required = ['ticker', 'price', 'pattern', 'quality'];
+    const missing = required.filter(k => payload[k] === undefined || payload[k] === null);
+    if (missing.length > 0) {
+      return jsonResp({ ok: false, error: 'missing_fields: ' + missing.join(', ') });
+    }
+
+    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
+    const ss = SpreadsheetApp.openById(sheetId);
+    let sh = ss.getSheetByName('v10_state');
+    if (!sh) {
+      sh = ss.insertSheet('v10_state');
+      sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality', 'obv_direction', 'atr']);
+    }
+
+    const ticker = String(payload.ticker);
+    const now = new Date();
+    const row = [
+      ticker,
+      now,
+      String(payload.timeframe || ''),
+      Number(payload.price),
+      String(payload.pattern),
+      Number(payload.quality),
+      String(payload.obv_direction || 'flat'),
+      payload.atr === undefined || payload.atr === null ? '' : Number(payload.atr)
+    ];
+
+    // upsert by ticker
+    const lastRow = sh.getLastRow();
+    let targetRow = -1;
+    if (lastRow >= 2) {
+      const tickers = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < tickers.length; i++) {
+        if (String(tickers[i][0]) === ticker) {
+          targetRow = i + 2;
+          break;
+        }
+      }
+    }
+    if (targetRow > 0) {
+      sh.getRange(targetRow, 1, 1, row.length).setValues([row]);
+    } else {
+      sh.appendRow(row);
+    }
+
+    return jsonResp({ ok: true, upserted: ticker });
+
+  } catch (err) {
+    console.error('[v10_state]', err.message, err.stack);
+    return jsonResp({ ok: false, error: err.message });
+  }
+}
+
+
+// ============================================================
+// Read v10 State endpoint — Routine 拉最新 D2/D3 snapshot
+// 不發 Telegram；回傳所有 ticker 的最新 state（routine 自己挑 TXF1!）
+// ============================================================
+function handleReadV10State(e) {
+  try {
+    if (!e.postData || !e.postData.contents) {
+      return jsonResp({ ok: false, error: 'no_body' });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonResp({ ok: false, error: 'invalid_json' });
+    }
+
+    const expectedToken = PropertiesService.getScriptProperties().getProperty('ROUTINE_TOKEN');
+    if (!expectedToken) {
+      return jsonResp({ ok: false, error: 'server_misconfigured' });
+    }
+    if (payload.token !== expectedToken) {
+      console.warn('[read_v10_state] Invalid token');
+      return jsonResp({ ok: false, error: 'unauthorized' });
+    }
+
+    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
+    const ss = SpreadsheetApp.openById(sheetId);
+    const sh = ss.getSheetByName('v10_state');
+    if (!sh) {
+      return jsonResp({ ok: true, states: [], count: 0 });
+    }
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) {
+      return jsonResp({ ok: true, states: [], count: 0 });
+    }
+    const rows = sh.getRange(2, 1, lastRow - 1, 8).getValues();
+    const nowMs = Date.now();
+    const states = rows
+      .filter(r => String(r[0] || '').trim() !== '')
+      .map(r => {
+        const ts = r[1] instanceof Date ? r[1] : new Date(r[1]);
+        const ageSec = Math.round((nowMs - ts.getTime()) / 1000);
+        return {
+          ticker: String(r[0]),
+          timestamp: ts.toISOString(),
+          age_sec: ageSec,
+          timeframe: String(r[2] || ''),
+          price: r[3] === '' || r[3] === null ? null : Number(r[3]),
+          pattern: String(r[4] || ''),
+          quality: r[5] === '' || r[5] === null ? null : Number(r[5]),
+          obv_direction: String(r[6] || 'flat'),
+          atr: r[7] === '' || r[7] === null ? null : Number(r[7])
+        };
+      });
+
+    // optional ticker filter
+    const filtered = payload.ticker
+      ? states.filter(s => s.ticker === String(payload.ticker))
+      : states;
+
+    return jsonResp({ ok: true, states: filtered, count: filtered.length });
+
+  } catch (err) {
+    console.error('[read_v10_state]', err.message, err.stack);
+    return jsonResp({ ok: false, error: err.message });
   }
 }
 
@@ -1001,7 +1156,16 @@ function formatAnalystReport(p) {
   msg += `g=<code>${fmt(season.g_score)}</code>  i=<code>${fmt(season.i_score)}</code>  `;
   msg += `Base=<code>${fmt(score.base)}</code> Val=<code>${fmt(score.val_adj)}</code>\n`;
   msg += `D1 ${gateIcon(gates.d1_direction)} D4 ${gateIcon(gates.d4_cooldown)}`;
-  if (gates.needs_tradingview_check) msg += ` · D2/D3 看 TV`;
+  if (gates.needs_tradingview_check) {
+    msg += ` · D2/D3 看 TV`;
+  } else {
+    if (gates.d2_pattern_quality !== undefined && gates.d2_pattern_quality !== null) {
+      msg += ` · D2 Q=${fmt(gates.d2_pattern_quality, 0)}${gates.d2_pass ? ' ✅' : ' ❌'}`;
+    }
+    if (gates.d3_volume_obv) {
+      msg += ` · D3 OBV ${escapeHtml(String(gates.d3_volume_obv))}${gates.d3_pass ? ' ✅' : ' ❌'}`;
+    }
+  }
   msg += `\n`;
 
   // 數據警告
@@ -1111,6 +1275,13 @@ function formatLegacyMacroMessage(p) {
   msg += `D1 方向 ${gateIcon(gates.d1_direction)}  D4 冷卻 ${gateIcon(gates.d4_cooldown)}\n`;
   if (gates.needs_tradingview_check) {
     msg += `D2 型態 / D3 量能 → 📊 開 TradingView 看\n`;
+  } else {
+    if (gates.d2_pattern_quality !== undefined && gates.d2_pattern_quality !== null) {
+      msg += `D2 型態 Q=${fmt(gates.d2_pattern_quality, 0)} ${gates.d2_pass ? '✅' : '❌'}\n`;
+    }
+    if (gates.d3_volume_obv) {
+      msg += `D3 OBV ${escapeHtml(String(gates.d3_volume_obv))} ${gates.d3_pass ? '✅' : '❌'}\n`;
+    }
   }
   msg += `\n`;
 
@@ -1285,7 +1456,16 @@ function testMacroSnapshotAnalyst() {
         season: { name: '🟡 轉換期', g_score: 0.5, i_score: 0.6 },
         light: { color: 'yellow', label: '🟡 黃燈', stability_pct: 57, force_yellow: false, stagflation_override: false },
         key_indicators: { vix: 17.83, erp: -0.79, real_rate: 1.91, hy_spread: 2.84, yield_curve: 0.45, oil_roc_20d: 3.4 },
-        v10_gates: { d1_direction: 'no_entry', d4_cooldown: 'ok', needs_tradingview_check: true },
+        v10_gates: {
+          d1_direction: 'no_entry',
+          d2_pattern_quality: 78,
+          d2_pass: true,
+          d3_volume_obv: 'up',
+          d3_pass: false,
+          d4_cooldown: 'ok',
+          needs_tradingview_check: false,
+          v10_state_age_sec: 312
+        },
         actionable: {
           summary: '黃燈待機',
           key_risks: ['Core PCE', '消費信心', 'ERP 負值'],
@@ -1457,6 +1637,42 @@ function testReadWatchlist() {
   const fakeEvent = {
     parameter: { endpoint: 'read_watchlist' },
     postData: { contents: JSON.stringify({ token: token }) }
+  };
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 模擬 Pine 推 v10_state snapshot */
+function testV10State() {
+  const props = PropertiesService.getScriptProperties();
+  const secret = props.getProperty('PINE_ALERT_SECRET');
+  const fakeEvent = {
+    parameter: { endpoint: 'v10_state' },
+    postData: {
+      contents: JSON.stringify({
+        secret: secret,
+        ticker: 'TAIFEX:TXF1!',
+        timeframe: '60',
+        price: 21820.00,
+        pattern: '雙重底',
+        quality: 78,
+        obv_direction: 'up',
+        atr: 145.50,
+        timestamp: String(Date.now())
+      })
+    }
+  };
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+}
+
+/** 模擬 Routine 拉最新 v10_state（先跑 testV10State 寫入再跑這個） */
+function testReadV10State() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+  const fakeEvent = {
+    parameter: { endpoint: 'read_v10_state' },
+    postData: { contents: JSON.stringify({ token: token, ticker: 'TAIFEX:TXF1!' }) }
   };
   const result = doPost(fakeEvent);
   console.log('Result:', result.getContent());
