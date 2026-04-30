@@ -367,6 +367,12 @@ function handleV10Signal(e) {
     msg += `\n`;
     if (payload.stop !== undefined)        msg += `停損: <code>${fmt(payload.stop)}</code>\n`;
     if (payload.trail_start !== undefined) msg += `啟動點: <code>${fmt(payload.trail_start)}</code>（浮盈 1×ATR）\n`;
+    if (payload.target !== undefined) {
+      const rText = payload.target_r !== undefined && payload.target_r !== null
+        ? ` (R:R = ${fmt(payload.target_r, 1)})`
+        : '';
+      msg += `目標: <code>${fmt(payload.target)}</code>${rText}\n`;
+    }
     msg += `\n⚡ <b>立即下單檢查清單</b>\n`;
     msg += `1. 確認 TXF 近月合約\n`;
     msg += `2. 開倉 1 口（→ 看狀況加碼至 2 口）\n`;
@@ -1327,6 +1333,8 @@ function testV10Signal() {
         macro_score: 18.5,
         stop: 21430.00,
         trail_start: 21680.00,
+        target: 21805.00,
+        target_r: 1.5,
         timestamp: String(Date.now())
       })
     }

@@ -15,9 +15,12 @@ g_webhook = "═══ Webhook（推 Telegram bot 用）═══"
 useWebhook   = input.bool(true, "啟用 webhook 推送", group=g_webhook)
 pineSecret   = input.string("", "Webhook secret", group=g_webhook,
                   tooltip="必填：與 GAS Script Property PINE_ALERT_SECRET 相同的隨機字串", confirm=true)
+rrTarget     = input.float(1.5, "R:R 目標倍數", options=[1.0, 1.5, 2.0], group=g_webhook,
+                  tooltip="目標價 = 進場 ± (進場-停損) × R:R。預設 1.5 表示停損距離的 1.5 倍。")
 ```
 
 `confirm=true` 讓 secret 在套用 strategy 時跳出確認框，避免儲存空值。
+`rrTarget` 用來算 alert payload 裡的 `target` 欄位（GAS 把它渲染成「目標: XXX (R:R = X.X)」，純參考用，不影響策略退場邏輯）。
 
 ### Step 2：在 Layer 5 進場區塊加 alert_message 拼接
 
@@ -26,6 +29,8 @@ pineSecret   = input.string("", "Webhook secret", group=g_webhook,
 ```pine
 // ═══ 進場 ═══
 if longSignal
+    float longStop   = close - atr14 * stopAtrMult
+    float longTarget = close + (close - longStop) * rrTarget
     string alertMsg = '{"secret":"' + pineSecret + '",' +
        '"action":"buy",' +
        '"ticker":"' + syminfo.ticker + '",' +
@@ -34,8 +39,10 @@ if longSignal
        '"pattern":"' + topName + '",' +
        '"quality":' + str.tostring(topQ, "#") + ',' +
        '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
-       '"stop":' + str.tostring(close - atr14 * stopAtrMult, "#.##") + ',' +
+       '"stop":' + str.tostring(longStop, "#.##") + ',' +
        '"trail_start":' + str.tostring(close + atr14 * trailStartAtr, "#.##") + ',' +
+       '"target":' + str.tostring(longTarget, "#.##") + ',' +
+       '"target_r":' + str.tostring(rrTarget, "#.#") + ',' +
        '"timestamp":"' + str.tostring(time, "#") + '"}'
     strategy.entry("Long", strategy.long, alert_message=alertMsg)
     lastEntryBar := bar_index
@@ -47,6 +54,8 @@ if longSignal
     trailActive := false
 
 if shortSignal
+    float shortStop   = close + atr14 * stopAtrMult
+    float shortTarget = close - (shortStop - close) * rrTarget
     string alertMsg = '{"secret":"' + pineSecret + '",' +
        '"action":"sell",' +
        '"ticker":"' + syminfo.ticker + '",' +
@@ -55,8 +64,10 @@ if shortSignal
        '"pattern":"' + topName + '",' +
        '"quality":' + str.tostring(topQ, "#") + ',' +
        '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
-       '"stop":' + str.tostring(close + atr14 * stopAtrMult, "#.##") + ',' +
+       '"stop":' + str.tostring(shortStop, "#.##") + ',' +
        '"trail_start":' + str.tostring(close - atr14 * trailStartAtr, "#.##") + ',' +
+       '"target":' + str.tostring(shortTarget, "#.##") + ',' +
+       '"target_r":' + str.tostring(rrTarget, "#.#") + ',' +
        '"timestamp":"' + str.tostring(time, "#") + '"}'
     strategy.entry("Short", strategy.short, alert_message=alertMsg)
     lastEntryBar := bar_index
@@ -67,6 +78,17 @@ if shortSignal
     peakHigh := na
     trailActive := false
 ```
+
+### Step 2.1：target 計算公式速查
+
+| 方向 | stop 公式 | target 公式 |
+|---|---|---|
+| 做多 | `close - atr × stopAtrMult` | `entry + (entry - stop) × R` |
+| 做空 | `close + atr × stopAtrMult` | `entry - (stop - entry) × R` |
+
+`R` 從 `rrTarget` input 讀（預設 1.5），可選 1.0 / 1.5 / 2.0。
+GAS 端只用 `target` 渲染顯示，**不會**改 strategy 的退場邏輯（仍用 1.5×ATR 停損 + 23% 拉回 + OBV 翻轉）。
+舊版 Pine（沒帶 target / target_r）GAS 仍正常運作，只是訊息少一行「目標」。
 
 ### Step 3：alertcondition 改用 placeholder
 
@@ -139,6 +161,8 @@ openssl rand -hex 16
      "macro_score": 18.5,
      "stop": 21430.00,
      "trail_start": 21680.00,
+     "target": 21805.00,
+     "target_r": 1.5,
      "timestamp": "1714281600000"
    }
    ```
@@ -175,9 +199,19 @@ openssl rand -hex 16
   "macro_score": 18.5,
   "stop": 21430.00,
   "trail_start": 21680.00,
+  "target": 21805.00,
+  "target_r": 1.5,
   "timestamp": "1714281600000"
 }
 ```
+
+| 欄位 | 必填 | 說明 |
+|---|:---:|---|
+| `secret` / `action` / `ticker` / `price` / `pattern` / `quality` | ✅ | GAS 驗證必要欄位 |
+| `stop` / `trail_start` | ⚠ | 沒帶就不渲染那行（不報錯） |
+| `target` | ⚠ | 沒帶就不渲染「目標」行（向後相容舊 Pine 版本） |
+| `target_r` | ⚠ | 帶 `target` 時建議一起帶；只帶 `target` 不帶 `target_r` 也支援，訊息只顯示「目標: XXX」不顯示 R:R |
+| `macro_score` / `timestamp` | ⚠ | 純參考 |
 
 GAS handler `handleV10Signal()` 解析欄位、驗證 secret、推 Telegram、寫 log。
 
