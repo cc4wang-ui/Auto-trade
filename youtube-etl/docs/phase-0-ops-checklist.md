@@ -181,7 +181,7 @@ gcloud run deploy youtube-etl-ingest \
   --memory=512Mi \
   --timeout=540 \
   --max-instances=2 \
-  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_RAW=youtube_raw,BQ_DATASET_MART=youtube_mart,NEW_VIDEO_WINDOW_HOURS=48,LIVE_POLL_MAX_VIDEOS=20" \
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_RAW=youtube_raw,BQ_DATASET_MART=youtube_mart,NEW_VIDEO_WINDOW_HOURS=48,LIVE_POLL_MAX_VIDEOS=20,ANALYTICS_BACKFILL_DAYS=7" \
   --project="$PROJECT_ID"
 ```
 

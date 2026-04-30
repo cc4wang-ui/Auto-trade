@@ -209,7 +209,7 @@ gcloud run deploy youtube-etl-ingest \
   --service-account="$SA_EMAIL" \
   --no-allow-unauthenticated \
   --memory=512Mi --timeout=540 --max-instances=2 \
-  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_RAW=youtube_raw,BQ_DATASET_MART=youtube_mart,NEW_VIDEO_WINDOW_HOURS=48,LIVE_POLL_MAX_VIDEOS=20"
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_RAW=youtube_raw,BQ_DATASET_MART=youtube_mart,NEW_VIDEO_WINDOW_HOURS=48,LIVE_POLL_MAX_VIDEOS=20,ANALYTICS_BACKFILL_DAYS=7"
 ```
 
 **先不要建 Scheduler**，等 STEP 6 smoke test 過再開排程。
@@ -251,11 +251,51 @@ WHERE call_date = CURRENT_DATE()
 GROUP BY api_method;
 
 -- Analytics API 通了嗎（有 estimated_revenue_usd 數字 = 通了）
-SELECT * FROM `project-7f1094dc-792a-4a86-85d.youtube_raw.analytics_daily`
-WHERE report_date = CURRENT_DATE() - 1;
+-- 注意：handler 會 backfill 過去 7 天，所以這裡看到 7 row（不是 1 row）
+SELECT report_date, views, unique_viewers, estimated_revenue_usd, ingest_run_id
+FROM `project-7f1094dc-792a-4a86-85d.youtube_raw.analytics_daily`
+WHERE channel_id = 'UC4OeUf_KfYRrwksschtRYow'
+ORDER BY report_date DESC;
 ```
 
-**結果丟 Claude**。Claude 看了會回 (a) 全 50 開 / (b) 哪裡要修。
+**結果丟 Claude**。Claude 看了會回 (a) 進 6.4 對帳 / (b) 哪裡要修。
+
+### 6.4 YouTube Studio 對帳（vendor 點到的關鍵驗收）
+
+> 為什麼要做：BQ 有數字 ≠ 數字對。實機驗證 BQ 跑出來的 views/likes/comments 跟 YouTube Studio 後台**完全一致**才算 pipeline 通。差超過 5% 就有 bug，不能放全 50 ch 上線。
+
+**步驟**：
+
+1. 用 mikai 共用 admin 登入 https://studio.youtube.com
+2. 切到 smoke test 用的那個 channel（花鋏キョウ）
+3. 左欄 `Analytics` → `Advanced mode` → 時間範圍選**前天**（`CURRENT_DATE() - 2`，因為 Analytics 數字會 backfill，前天比昨天穩）
+4. 記下 4 個數字：**Views / Watch time (hours) / Likes / Comments**
+5. 跑這個 BQ query，跟 Studio 對：
+
+```sql
+-- 拿 BQ 的數字
+SELECT
+  report_date,
+  views                              AS bq_views,
+  ROUND(estimated_minutes_watched / 60.0, 1) AS bq_watch_hours,
+  likes                              AS bq_likes,
+  comments                           AS bq_comments,
+  estimated_revenue_usd              AS bq_revenue
+FROM `project-7f1094dc-792a-4a86-85d.youtube_raw.analytics_daily`
+WHERE channel_id = 'UC4OeUf_KfYRrwksschtRYow'
+  AND report_date = CURRENT_DATE() - 2;
+```
+
+**Pass 標準**：
+
+| 指標 | 容差 | 不過 → 怎麼辦 |
+|---|---|---|
+| Views | < 1% diff | 看 raw_json，可能 Analytics scope 不夠 |
+| Watch hours | < 5% diff | 單位轉換錯（API 給秒、Studio 顯示時/分） |
+| Likes / Comments | < 1% diff | 同 views 排查 |
+| Revenue | < 5% diff | 確認 `yt-analytics-monetary.readonly` scope 在 OAuth |
+
+**4 個都過 → 進 STEP 7 全 50 開**。任何一個不過 → 把 Studio 截圖 + BQ query 結果丟 Claude。
 
 ---
 

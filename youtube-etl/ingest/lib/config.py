@@ -13,6 +13,7 @@ class Config:
     secret_oauth_client_secret: str
     new_video_window_hours: int
     live_poll_max_videos: int
+    analytics_backfill_days: int
 
 
 def load() -> Config:
@@ -31,4 +32,5 @@ def load() -> Config:
         ),
         new_video_window_hours=int(os.environ.get("NEW_VIDEO_WINDOW_HOURS", "48")),
         live_poll_max_videos=int(os.environ.get("LIVE_POLL_MAX_VIDEOS", "20")),
+        analytics_backfill_days=int(os.environ.get("ANALYTICS_BACKFILL_DAYS", "7")),
     )

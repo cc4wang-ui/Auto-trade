@@ -36,7 +36,85 @@ class BqWriter:
         self.insert(self._cfg.bq_dataset_raw, "live_metrics_snapshot", rows)
 
     def write_analytics_daily(self, rows: List[dict]) -> None:
-        self.insert(self._cfg.bq_dataset_raw, "analytics_daily", rows)
+        """MERGE upsert on (report_date, channel_id).
+
+        YouTube Analytics numbers backfill for ~7 days after the event,
+        so the handler re-fetches the past N days each run; idempotency
+        is enforced here via a staging-table MERGE.
+        """
+        if not rows:
+            return
+        staging = self._ref(
+            self._cfg.bq_dataset_raw,
+            f"_stg_analytics_daily_{int(datetime.now(timezone.utc).timestamp())}",
+        )
+        schema = [
+            bigquery.SchemaField("report_date", "DATE", mode="REQUIRED"),
+            bigquery.SchemaField("channel_id", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("views", "INT64"),
+            bigquery.SchemaField("unique_viewers", "INT64"),
+            bigquery.SchemaField("estimated_minutes_watched", "INT64"),
+            bigquery.SchemaField("average_view_duration", "FLOAT64"),
+            bigquery.SchemaField("estimated_revenue_usd", "NUMERIC"),
+            bigquery.SchemaField("estimated_ad_revenue_usd", "NUMERIC"),
+            bigquery.SchemaField("cpm_usd", "NUMERIC"),
+            bigquery.SchemaField("subscribers_gained", "INT64"),
+            bigquery.SchemaField("subscribers_lost", "INT64"),
+            bigquery.SchemaField("likes", "INT64"),
+            bigquery.SchemaField("shares", "INT64"),
+            bigquery.SchemaField("comments", "INT64"),
+            bigquery.SchemaField("raw_json", "STRING"),
+            bigquery.SchemaField("ingest_run_id", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("ingested_at", "TIMESTAMP", mode="REQUIRED"),
+        ]
+        load_job = self._client.load_table_from_json(
+            rows,
+            staging,
+            job_config=bigquery.LoadJobConfig(
+                schema=schema, write_disposition="WRITE_TRUNCATE"
+            ),
+        )
+        load_job.result()
+
+        target = self._ref(self._cfg.bq_dataset_raw, "analytics_daily")
+        merge = f"""
+        MERGE `{target}` T
+        USING `{staging}` S
+        ON T.report_date = S.report_date AND T.channel_id = S.channel_id
+        WHEN MATCHED THEN UPDATE SET
+          views                     = S.views,
+          unique_viewers            = S.unique_viewers,
+          estimated_minutes_watched = S.estimated_minutes_watched,
+          average_view_duration     = S.average_view_duration,
+          estimated_revenue_usd     = S.estimated_revenue_usd,
+          estimated_ad_revenue_usd  = S.estimated_ad_revenue_usd,
+          cpm_usd                   = S.cpm_usd,
+          subscribers_gained        = S.subscribers_gained,
+          subscribers_lost          = S.subscribers_lost,
+          likes                     = S.likes,
+          shares                    = S.shares,
+          comments                  = S.comments,
+          raw_json                  = S.raw_json,
+          ingest_run_id             = S.ingest_run_id,
+          ingested_at               = S.ingested_at
+        WHEN NOT MATCHED THEN INSERT (
+          report_date, channel_id, views, unique_viewers,
+          estimated_minutes_watched, average_view_duration,
+          estimated_revenue_usd, estimated_ad_revenue_usd, cpm_usd,
+          subscribers_gained, subscribers_lost,
+          likes, shares, comments,
+          raw_json, ingest_run_id, ingested_at
+        ) VALUES (
+          S.report_date, S.channel_id, S.views, S.unique_viewers,
+          S.estimated_minutes_watched, S.average_view_duration,
+          S.estimated_revenue_usd, S.estimated_ad_revenue_usd, S.cpm_usd,
+          S.subscribers_gained, S.subscribers_lost,
+          S.likes, S.shares, S.comments,
+          S.raw_json, S.ingest_run_id, S.ingested_at
+        )
+        """
+        self._client.query(merge).result()
+        self._client.delete_table(staging, not_found_ok=True)
 
     def write_quota_log(self, tracker: QuotaTracker) -> None:
         rows = [self._quota_event_to_row(e, tracker.run_id) for e in tracker.events]
