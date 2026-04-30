@@ -760,6 +760,34 @@ function formatEarningsSummary(p) {
     msg += `\n`;
   }
 
+  // Call 重點（管理層 prepared remarks 抽出 3-5 條）
+  if (Array.isArray(p.call_highlights) && p.call_highlights.length > 0) {
+    msg += `\n<b>【Call 重點】</b>\n`;
+    p.call_highlights.forEach(h => {
+      msg += `• ${escapeHtml(String(h))}\n`;
+    });
+  }
+
+  // 分析師 Q&A（2-3 條對立或 surprise 交鋒）
+  if (Array.isArray(p.qa_highlights) && p.qa_highlights.length > 0) {
+    msg += `\n<b>【分析師 Q&amp;A】</b>\n`;
+    p.qa_highlights.forEach(qa => {
+      const raw = String(qa || '');
+      const arrowIdx = raw.indexOf('→');
+      let qPart;
+      let aPart;
+      if (arrowIdx >= 0) {
+        qPart = raw.slice(0, arrowIdx).trim();
+        aPart = raw.slice(arrowIdx + 1).trim() || '—';
+      } else {
+        qPart = raw.trim();
+        aPart = '—';
+      }
+      msg += `Q · ${escapeHtml(qPart)}\n`;
+      msg += `A · ${escapeHtml(aPart)}\n\n`;
+    });
+  }
+
   // 摘要
   if (p.summary_text) {
     msg += `\n<b>重點</b>\n${escapeHtml(String(p.summary_text))}`;
@@ -1405,6 +1433,15 @@ function testEarningsSummary() {
         avg_cost: 145.20,
         recommendation: 'hold',
         recommendation_reason: 'Beat 雙線 + Guidance 上修，但 PE 已 60+，不加碼',
+        call_highlights: [
+          '資料中心 +73% YoY 為主要驅動，Blackwell 出貨提前一季',
+          '毛利率指引維持 75% 以上，Inventory turnover 改善',
+          '中國禁令影響 Q3 約 $5B，但已 priced in'
+        ],
+        qa_highlights: [
+          'Morgan Stanley 問 H100 庫存去化 → CFO 回覆 Q3 完成，無 write-down',
+          'Goldman 問 Sovereign AI 訂單能見度 → 12 個月 backlog 已滿'
+        ],
         summary_text: '資料中心 +85% YoY 為主要驅動。Blackwell 出貨節奏優於預期。中國禁令影響已 priced in。'
       })
     }

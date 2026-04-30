@@ -183,6 +183,15 @@ POST {GAS_WEBHOOK_URL}/earnings_report
   "avg_cost": 145.20,
   "recommendation": "hold",
   "recommendation_reason": "Beat 雙線 + Guidance 上修，但 PE 已 60+，不加碼",
+  "call_highlights": [
+    "資料中心 +73% YoY 為主要驅動，Blackwell 出貨提前一季",
+    "毛利率指引維持 75% 以上，Inventory turnover 改善",
+    "中國禁令影響 Q3 約 $5B，但已 priced in"
+  ],
+  "qa_highlights": [
+    "Morgan Stanley 問 H100 庫存去化 → CFO 回覆 Q3 完成，無 write-down",
+    "Goldman 問 Sovereign AI 訂單能見度 → 12 個月 backlog 已滿"
+  ],
   "summary_text": "資料中心 +85% YoY 為主要驅動。Blackwell 出貨節奏優於預期。中國禁令影響已 priced in。"
 }
 ```
@@ -196,6 +205,45 @@ POST {GAS_WEBHOOK_URL}/earnings_report
 | `*_yoy_pct` | 公司 IR / web_search 算 |
 | `guidance` | press release / earnings call notes |
 | `price_before`, `price_after`, `price_reaction_pct` | 美股：盤後 1 小時的 last quote。台股：T+1 開盤反應（next session open vs prev close） |
+| `call_highlights`, `qa_highlights` | Earnings call transcript（見下節） |
+
+### Call / Q&A 來源優先順序
+
+`call_highlights` 從 prepared remarks 抽，`qa_highlights` 從分析師問答區抽。
+
+| 優先 | 來源 | 速度 |
+|---|---|---|
+| 1 | Seeking Alpha transcripts (`seekingalpha.com/article/...transcript`) | 公布後 1-2h 上線 |
+| 2 | Motley Fool transcripts (`fool.com/earnings/call-transcripts`) | 1-3h 上線 |
+| 3 | Bloomberg / Reuters call notes | 即時但需付費 |
+| 4 | 公司 IR webcast 重播 / 8-K 文件 | 1-7 天上線 |
+
+**搜尋指令**：
+- `web_search "{ticker} earnings call transcript Q{n} {YYYY}"`
+- `web_search "{ticker} Q{n} {YYYY} prepared remarks"`
+- `web_search "{ticker} analyst Q&A {YYYY}"`
+
+**找不到 transcript（Routine 跑時還沒上線）**：
+- `call_highlights` 與 `qa_highlights` 都送空陣列 `[]`，**不要省略整個欄位**
+- 在 routine log 註記「transcript 未公布，已送空陣列」
+- GAS 端會跳過渲染，不會出現空標題
+
+### `call_highlights` 寫作守則
+
+- **3-5 條**，超過會把訊息撐爆
+- 從 prepared remarks（CEO / CFO 開場 + 業務 review）抽，**不從 Q&A**
+- **每條 ≤ 50 字**，先因後果（例：「資料中心 +73% YoY 為主要驅動，Blackwell 出貨提前一季」）
+- 優先：業務驅動 / 毛利結構 / 指引邏輯 / 一次性事件影響
+- ❌ 砍：感謝詞、宏觀廢話（"macro 環境充滿挑戰"）、重複 press release 數字
+
+### `qa_highlights` 寫作守則
+
+- **2-3 條**，挑「**有對立 / 有 surprise**」的交鋒
+- 格式必須是 `[分析師行] 問 [問題] → [回應]`（用 `→` 分隔，**GAS 會切 Q/A 兩段渲染**）
+- **每條 ≤ 60 字**
+- 優先：管理層被追問的點、guidance 細節、產品 timing、競爭威脅
+- ❌ 砍：「謝謝 great quarter」、產業常識題、重複 prepared remarks 的 Q
+- ⚠ 沒有 `→` 時 GAS 會把整條當 Q、A 顯示「—」（不會壞，但失去 Q&A 結構）
 
 ### `recommendation` 五選一
 
