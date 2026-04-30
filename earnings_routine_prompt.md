@@ -69,29 +69,43 @@ Content-Type: application/json
 { "token": "{ROUTINE_TOKEN}" }
 ```
 
-回傳：
+回傳（v1.2 schema，9 欄含 `lock_status` / `asset_type`）：
 
 ```json
 {
   "ok": true,
-  "count": 12,
+  "count": 13,
   "watchlist": [
-    { "ticker": "2330", "market": "TW", "shares": null, "avg_cost": null,
-      "added_at": "2025", "exit_at": null, "note": "台積電" },
-    { "ticker": "QQQ", "market": "US", ..., "note": "ETF (no earnings) — skip" },
+    { "ticker": "NVDA", "market": "US", "shares": 15, "avg_cost": 132.03,
+      "added_at": "2025", "exit_at": null,
+      "lock_status": "tradeable", "asset_type": "stock", "note": "個人 91275762" },
+    { "ticker": "2330", "market": "TW", "shares": 920, "avg_cost": 972,
+      "added_at": "2025", "exit_at": null,
+      "lock_status": "locked", "asset_type": "stock", "note": "太太代持 / 台積電" },
+    { "ticker": "QQQ", "market": "US", "shares": 10, "avg_cost": 337.64,
+      "lock_status": "tradeable", "asset_type": "etf", "note": "個人 91275762" },
+    { "ticker": "1810", "market": "HK", "shares": 0, "avg_cost": 54.88,
+      "exit_at": "2026-04-30", "lock_status": "tradeable", "asset_type": "stock",
+      "note": "已出清 / 小米" },
     ...
   ]
 }
 ```
 
-### 過濾規則
+### 過濾規則（v1.2）
 
-對每筆 row：
-- **跳過** 如果 `note` 含字串 `"no earnings"` 或 `"skip"` → ETF / 反向 ETF / 已退市
-- **跳過** 如果 `exit_at` 不為 null 且 > 6 個月前 → 早就賣掉的，不再追蹤
-- **保留** 其餘進入 Step 2 財報日比對
+對每筆 row 套用順序：
 
-`shares` / `avg_cost` 可能是 null（Cross 還沒填）→ 推訊息時 GAS formatter 會顯示 「未填，無法估影響」，不會 crash。
+1. **`asset_type === "etf"`** → **完全 skip**（ETF 不發財報）
+2. **`exit_at` 已標日期** → **完全 skip**（已出清，不需再追蹤）
+3. **`lock_status === "locked"`**：
+   - `mode === "alert"` → **保留**（仍提醒財報日，但 alert 訊息會自動加 🔒 太太持有 標記）
+   - `mode === "summary"` → **skip**（沒辦法操作，summary 沒意義）
+4. 其餘進入 Step 2 財報日比對
+
+舊邏輯參考（fallback，note 含 `"no earnings"` / `"skip"` 也跳過）— 如果新欄位未填會走這個。
+
+`shares` / `avg_cost` 可能是 null（極少數新加入沒填）→ 推訊息時 GAS formatter 會顯示「未填」，不會 crash。
 
 ---
 
@@ -127,10 +141,12 @@ POST {GAS_WEBHOOK_URL}/earnings_report
   "shares": 50,
   "avg_cost": 145.20,
   "current_price": 178.50,
+  "lock_status": "tradeable",
   "action_hint": "財報前避免加碼，IV 已偏高"
 }
 ```
 
+**`lock_status` 來源**：直接從 watchlist 帶入。GAS 收到 `"locked"` 會在 alert 訊息標 🔒 並把「立即下單」段落改成「監控用，太太帳戶」。
 **`shares` / `avg_cost` 來源**：從 watchlist sheet 讀。如果為空 → payload 不放（GAS 會顯示「未填」提醒）。
 **`current_price`**：web_search 即時報價（遵守 CLAUDE.md Rule 1 — 台股股價必須 web_search）。
 **`action_hint`**（optional）：你判斷一句話，例如：
@@ -192,6 +208,8 @@ POST {GAS_WEBHOOK_URL}/earnings_report
 | `exit` | Miss 雙線 + Guidance 下修 + 結構性問題（執行不利、競爭加劇） |
 
 寫 `recommendation_reason` 一句話為什麼。**不要寫 yes-man，敢用 trim/exit**。
+
+⚠ **locked 部位 summary mode 不應該到這一步**（Step 1 已 skip）。如果意外抵達，強制 `recommendation = "monitor"` + reason = "太太代持，僅監控"。
 
 ### `summary_text` 寫作守則
 

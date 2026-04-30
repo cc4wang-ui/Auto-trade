@@ -84,25 +84,32 @@ function setupCheck() {
           sh.appendRow(['macro_session', '', '']);
           sh.appendRow(['v10_signal', '', '']);
         } else if (name === 'earnings_watchlist') {
-          sh.appendRow(['ticker', 'market', 'shares', 'avg_cost', 'added_at', 'exit_at', 'note']);
-          // 預填 Cross 已開倉過的 11 檔（shares/avg_cost 留空 → 你自己補）
-          // ETF / 反向 ETF 不發財報，標 skip
+          // v1.2: 加 lock_status (tradeable/locked) + asset_type (stock/etf)
+          sh.appendRow(['ticker', 'market', 'shares', 'avg_cost', 'added_at', 'exit_at',
+                        'lock_status', 'asset_type', 'note']);
+          // 預填 Cross 13 檔（8 tradeable + 3 locked + 2 exited）
+          // 帳戶分布：個人美股 91275762、國泰港股、國泰美股、國泰台股、太太代持
           const seed = [
-            ['2330',   'TW', '', '', '2025', '', '台積電'],
-            ['006208', 'TW', '', '', '2025', '', 'ETF (no earnings) — skip'],
-            ['2382',   'TW', '', '', '2025', '', '廣達'],
-            ['9660',   'TW', '', '', '2025', '', ''],
-            ['00632R', 'TW', '', '', '2025', '', 'ETF (no earnings) — skip'],
-            ['1810',   'HK', '', '', '2025', '', '小米（港股，HKEX）'],
-            ['QQQ',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
-            ['NFLX',   'US', '', '', '2025', '', ''],
-            ['NVDA',   'US', '', '', '2025', '', ''],
-            ['VOO',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
-            ['VTI',    'US', '', '', '2025', '', 'ETF (no earnings) — skip'],
-            ['IXC',    'US', '', '', '2026-04-21', '', 'ETF (no earnings) — skip / 能源對沖']
+            // tradeable — 個人美股 91275762
+            ['NFLX',   'US',     50, 22.19,  '2025',       '',           'tradeable', 'stock', '個人 91275762'],
+            ['NVDA',   'US',     15, 132.03, '2025',       '',           'tradeable', 'stock', '個人 91275762'],
+            ['QQQ',    'US',     10, 337.64, '2025',       '',           'tradeable', 'etf',   '個人 91275762'],
+            ['VTI',    'US',     10, 182.91, '2025',       '',           'tradeable', 'etf',   '個人 91275762'],
+            // tradeable — 國泰證券
+            ['9660',   'HK',  16800, 6.587,  '2025',       '',           'tradeable', 'stock', '國泰港股 / 地平線機器人'],
+            ['IXC',    'US',     60, 53.12,  '2026-04-21', '',           'tradeable', 'etf',   '國泰美股 / 能源對沖'],
+            ['VOO',    'US',     10, 624.26, '2025',       '',           'tradeable', 'etf',   '國泰美股'],
+            ['00632R', 'TW',  15000, 13.33,  '2025',       '',           'tradeable', 'etf',   '國泰台股 / 反一'],
+            // locked — 太太代持
+            ['2330',   'TW',    920, 972,    '2025',       '',           'locked',    'stock', '太太代持 / 台積電'],
+            ['006208', 'TW',   3500, 100.7,  '2025',       '',           'locked',    'etf',   '太太代持 / 富邦台 50'],
+            ['2382',   'TW',   2188, 264,    '2025',       '',           'locked',    'stock', '太太代持 / 廣達'],
+            // exited — 已出清
+            ['1810',   'HK',      0, 54.88,  '2025',       '2026-04-30', 'tradeable', 'stock', '已出清 / 小米'],
+            ['00956',  'TW',      0, 37,     '2025',       '2026-04-30', 'locked',    'etf',   '太太代持 / 已出清 / CTBC TOPIX']
           ];
           seed.forEach(row => sh.appendRow(row));
-          console.log('  → 已預填 12 列（請自行補 shares / avg_cost）');
+          console.log('  → 已預填 13 列（8 tradeable + 3 locked + 2 exited）');
         } else if (name === 'earnings_log') {
           sh.appendRow(['timestamp', 'ticker', 'type', 'earnings_date',
                         'eps_actual', 'eps_estimate', 'rev_actual', 'rev_estimate',
@@ -114,6 +121,63 @@ function setupCheck() {
     });
   } catch (err) {
     console.log(`⚠ 開 sheet 失敗: ${err.message}`);
+  }
+}
+
+
+// ============================================================
+// Migration v1.1 → v1.2：earnings_watchlist 加 lock_status / asset_type 兩欄
+// ============================================================
+/**
+ * 既有 sheet（v1.1，7 欄）→ v1.2（9 欄）。
+ * 對 Cross 已上線的 sheet 跑一次：在 'exit_at' 後插入 'lock_status' / 'asset_type'。
+ *
+ * 跑法：Apps Script 編輯器選 migrateWatchlistSchema → ▶ Run
+ * 冪等：已是 9 欄會 noop。
+ */
+function migrateWatchlistSchema() {
+  const props = PropertiesService.getScriptProperties();
+  const SHEET_ID = props.getProperty('MACRO_SHEET_ID');
+  if (!SHEET_ID) throw new Error('MACRO_SHEET_ID 未設定');
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName('earnings_watchlist');
+  if (!sh) throw new Error('earnings_watchlist sheet 不存在 → 先跑 setupCheck()');
+
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  if (headers.indexOf('lock_status') >= 0 && headers.indexOf('asset_type') >= 0) {
+    console.log('✅ Schema 已是 v1.2，無需 migration');
+    return;
+  }
+
+  const exitIdx = headers.indexOf('exit_at');
+  const noteIdx = headers.indexOf('note');
+  if (exitIdx < 0 || noteIdx < 0) {
+    throw new Error('既有 sheet 缺 exit_at 或 note 欄，無法 migrate');
+  }
+
+  // 在 'note' 前插 2 欄
+  sh.insertColumnsBefore(noteIdx + 1, 2);
+  sh.getRange(1, noteIdx + 1).setValue('lock_status');
+  sh.getRange(1, noteIdx + 2).setValue('asset_type');
+  console.log('✅ 已插入 lock_status / asset_type 兩欄（在 note 前）');
+
+  // 對既有列推斷預設值
+  const lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    const data = sh.getRange(2, 1, lastRow - 1, sh.getLastColumn()).getValues();
+    let stocks = 0, etfs = 0;
+    for (let i = 0; i < data.length; i++) {
+      const ticker = String(data[i][0] || '').trim();
+      const market = String(data[i][1] || '').trim();
+      if (!ticker) continue;
+      const inferred = inferAssetType(ticker, market);
+      sh.getRange(i + 2, noteIdx + 1).setValue('tradeable');  // 預設都 tradeable
+      sh.getRange(i + 2, noteIdx + 2).setValue(inferred);
+      if (inferred === 'etf') etfs++; else stocks++;
+    }
+    console.log(`✅ 預設值已寫入：${stocks} 個 stock / ${etfs} 個 etf，全部 lock_status=tradeable`);
+    console.log('⚠ 接下來請手動把太太代持的部位 lock_status 改為 "locked"（預期：2330 / 006208 / 2382 / 00956）');
   }
 }
 
@@ -488,16 +552,36 @@ function handleReadWatchlist(e) {
     if (lastRow < 2) {
       return jsonResp({ ok: true, watchlist: [], count: 0 });
     }
-    const rows = sh.getRange(2, 1, lastRow - 1, 7).getValues();  // 7 columns
-    const watchlist = rows.map(r => ({
-      ticker:   String(r[0] || '').trim(),
-      market:   String(r[1] || '').trim(),
-      shares:   r[2] === '' || r[2] === null ? null : Number(r[2]),
-      avg_cost: r[3] === '' || r[3] === null ? null : Number(r[3]),
-      added_at: r[4] ? String(r[4]) : null,
-      exit_at:  r[5] ? String(r[5]) : null,
-      note:     String(r[6] || '').trim()
-    })).filter(x => x.ticker !== '');
+    // v1.2: 9 columns（加 lock_status + asset_type）
+    // 舊 sheet 還是 7 欄時會自動 fallback：lock_status='tradeable' / asset_type=從 ticker 推
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    const hasLockCols = headers.indexOf('lock_status') >= 0 && headers.indexOf('asset_type') >= 0;
+    const numCols = hasLockCols ? 9 : 7;
+    const rows = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+    const watchlist = rows.map(r => {
+      const ticker = String(r[0] || '').trim();
+      const market = String(r[1] || '').trim();
+      const item = {
+        ticker:   ticker,
+        market:   market,
+        shares:   r[2] === '' || r[2] === null ? null : Number(r[2]),
+        avg_cost: r[3] === '' || r[3] === null ? null : Number(r[3]),
+        added_at: r[4] ? String(r[4]) : null,
+        exit_at:  r[5] ? String(r[5]) : null,
+      };
+      if (hasLockCols) {
+        item.lock_status = String(r[6] || 'tradeable').trim().toLowerCase();
+        item.asset_type  = String(r[7] || 'stock').trim().toLowerCase();
+        item.note        = String(r[8] || '').trim();
+      } else {
+        // 舊 sheet — 推一個合理預設
+        item.lock_status = 'tradeable';
+        item.asset_type  = inferAssetType(ticker, market);
+        item.note        = String(r[6] || '').trim();
+      }
+      return item;
+    }).filter(x => x.ticker !== '');
 
     return jsonResp({ ok: true, watchlist: watchlist, count: watchlist.length });
 
@@ -523,11 +607,14 @@ function handleReadWatchlist(e) {
  */
 function formatEarningsAlert(p) {
   const marketLabel = { 'TW': '台股', 'US': '美股', 'HK': '港股' }[p.market] || p.market || '';
-  let msg = `📅 <b>明日財報提醒</b>  ${escapeHtml(String(p.earnings_date))}\n`;
+  const isLocked = String(p.lock_status || '').toLowerCase() === 'locked';
+  const titlePrefix = isLocked ? '🔒 ' : '';
+  let msg = `📅 <b>${titlePrefix}明日財報提醒</b>  ${escapeHtml(String(p.earnings_date))}\n`;
   msg += `━━━━━━━━━━━━━━━━━━\n`;
   msg += `<b>${escapeHtml(String(p.ticker))}</b>`;
   if (p.company_name) msg += `  ${escapeHtml(String(p.company_name))}`;
   if (marketLabel)    msg += `  <i>${escapeHtml(marketLabel)}</i>`;
+  if (isLocked)       msg += `  <i>(太太代持)</i>`;
   msg += `\n`;
   if (p.release_time_local) {
     msg += `公布時間: ${escapeHtml(String(p.release_time_local))}\n`;
@@ -560,8 +647,13 @@ function formatEarningsAlert(p) {
   }
 
   msg += `\n<b>提醒</b>\n`;
-  msg += `• 不過 earnings → 盤前/收盤前出\n`;
-  msg += `• 過 earnings → IB 設 OCO 保護\n`;
+  if (isLocked) {
+    msg += `• 太太代持，僅監控不下單\n`;
+    msg += `• 公布後留意是否需告知她調整\n`;
+  } else {
+    msg += `• 不過 earnings → 盤前/收盤前出\n`;
+    msg += `• 過 earnings → IB 設 OCO 保護\n`;
+  }
   if (p.action_hint) {
     msg += `• ${escapeHtml(String(p.action_hint))}\n`;
   }
@@ -761,14 +853,27 @@ function formatAnalystReport(p) {
     msg += `\n`;
   }
 
-  // 4. 持倉動作
+  // 4. 持倉動作（locked 部位前綴 🔒，標 "監控用"）
   if (Array.isArray(a.portfolio_implications) && a.portfolio_implications.length > 0) {
+    // 排序：tradeable 在前、locked 在後（locked 視覺上分組到下半段）
+    const sorted = a.portfolio_implications.slice().sort((x, y) => {
+      const xLocked = String(x.lock_status || '').toLowerCase() === 'locked' ? 1 : 0;
+      const yLocked = String(y.lock_status || '').toLowerCase() === 'locked' ? 1 : 0;
+      return xLocked - yLocked;
+    });
     msg += `<b>【持倉動作】</b>\n`;
-    a.portfolio_implications.forEach(pi => {
+    let firstLocked = true;
+    sorted.forEach(pi => {
+      const isLocked = String(pi.lock_status || '').toLowerCase() === 'locked';
+      if (isLocked && firstLocked) {
+        msg += `<i>—— 🔒 太太代持（監控用，不操作） ——</i>\n`;
+        firstLocked = false;
+      }
+      const lockIcon = isLocked ? '🔒 ' : '';
       const pos    = escapeHtml(String(pi.position || '—'));
       const stance = escapeHtml(String(pi.stance || '—'));
       const action = escapeHtml(String(pi.action || '—'));
-      msg += `• <b>${pos}</b> · ${stance}\n   → ${action}\n`;
+      msg += `• ${lockIcon}<b>${pos}</b> · ${stance}\n   → ${action}\n`;
       if (pi.trigger_to_change && pi.trigger_to_change !== '—') {
         msg += `   <i>觸發：${escapeHtml(String(pi.trigger_to_change))}</i>\n`;
       }
@@ -1535,22 +1640,17 @@ function cleanWatchlist() {
 
   const data = sh.getDataRange().getValues();
   const wlH = data[0];
-  const wIdx = (n) => {
-    const i = wlH.indexOf(n);
-    if (i < 0) throw new Error('watchlist 缺欄位: ' + n);
-    return i;
-  };
+  const wIdx = (n) => wlH.indexOf(n);
   const wT = wIdx('ticker'), wM = wIdx('market'), wS = wIdx('shares'), wN = wIdx('note');
+  const wExit = wIdx('exit_at'), wLock = wIdx('lock_status'), wType = wIdx('asset_type');
+  if (wT < 0 || wM < 0 || wS < 0 || wN < 0) {
+    throw new Error('watchlist 缺基本欄位（ticker / market / shares / note）');
+  }
+  const hasNewCols = wLock >= 0 && wType >= 0;
 
-  // 已知 US ETF / 槓桿 / 反向 ETF（補充用，TW 用 00 prefix 自動偵測）
-  const KNOWN_US_ETF = new Set([
-    'VOO','VTI','QQQ','SPY','IWM','DIA','EEM','EWT','EWY','EWJ','EWZ',
-    'XLF','XLE','XLK','XLV','XLY','XLP','XLI','XLU','XLB','XLC',
-    'ARKW','ARKK','ARKG','ARKF','ARKQ','EMQQ','IDRV','IXC','SOXX',
-    'TQQQ','SQQQ','UPRO','SPXU','SOXL','SOXS','TNA','TZA','UVXY','SVXY'
-  ]);
+  let etfMarked = 0, closedMarked = 0, negFlagged = 0, lockDefaulted = 0, typeInferred = 0;
+  const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
 
-  let etfMarked = 0, closedMarked = 0, negFlagged = 0;
   for (let i = 1; i < data.length; i++) {
     const ticker = String(data[i][wT] || '').trim();
     if (!ticker) continue;
@@ -1558,47 +1658,94 @@ function cleanWatchlist() {
     const shares = parseFloat(data[i][wS]);
     const existing = String(data[i][wN] || '').trim();
 
-    let newNote = null, reason = null;
-
-    // Rule 1: ETF (top priority — never has earnings)
-    const isTwETF = market === 'TW' && /^00\d/.test(ticker);
-    const isUsETF = market === 'US' && KNOWN_US_ETF.has(ticker.toUpperCase());
-    if (isTwETF || isUsETF) {
-      if (!existing.toLowerCase().includes('no earnings')) {
-        newNote = 'ETF (no earnings) — skip';
-        reason = 'etf';
+    // ─── 新欄位：asset_type / lock_status 自動推斷 ───
+    if (hasNewCols) {
+      const curType = String(data[i][wType] || '').trim().toLowerCase();
+      const curLock = String(data[i][wLock] || '').trim().toLowerCase();
+      if (!curType) {
+        const inferred = inferAssetType(ticker, market);
+        sh.getRange(i + 1, wType + 1).setValue(inferred);
+        typeInferred++;
+        console.log('  ✏ ' + ticker + ' asset_type → ' + inferred);
+      }
+      if (!curLock) {
+        sh.getRange(i + 1, wLock + 1).setValue('tradeable');
+        lockDefaulted++;
+        console.log('  ✏ ' + ticker + ' lock_status → tradeable (default)');
       }
     }
-    // Rule 2: negative shares (CSV history incomplete)
-    else if (isFinite(shares) && shares < 0) {
+
+    // ─── note 欄維護 + exit_at 標記 ───
+    let newNote = null, reason = null;
+
+    // Rule 1: 負股數警告（CSV history 缺早期 BUY）
+    if (isFinite(shares) && shares < 0) {
       if (!existing.includes('負值')) {
-        newNote = '⚠ 負值 — skip（CSV 不完整，請手動補早期 BUY）';
+        newNote = '⚠ 負值（CSV 不完整，請手動補早期 BUY）';
         reason = 'neg';
       }
     }
-    // Rule 3: closed position
-    else if (isFinite(shares) && shares === 0) {
-      const lower = existing.toLowerCase();
-      if (!lower.includes('skip') && !lower.includes('closed')) {
-        newNote = existing
-          ? existing + ' — closed (skip)'
-          : 'closed (skip)';
-        reason = 'closed';
+    // Rule 2: shares=0 → 自動標 exit_at（如果還沒標）
+    else if (isFinite(shares) && shares === 0 && wExit >= 0) {
+      const curExit = String(data[i][wExit] || '').trim();
+      if (!curExit) {
+        sh.getRange(i + 1, wExit + 1).setValue(today);
+        closedMarked++;
+        console.log('  ✏ ' + ticker + ' exit_at → ' + today);
+      }
+    }
+    // Rule 3（舊 sheet 相容）：沒有 asset_type 欄時用舊邏輯把 ETF 標進 note
+    else if (!hasNewCols) {
+      const inferred = inferAssetType(ticker, market);
+      if (inferred === 'etf' && !existing.toLowerCase().includes('no earnings')) {
+        newNote = 'ETF (no earnings) — skip';
+        reason = 'etf';
       }
     }
 
     if (newNote && newNote !== existing) {
       sh.getRange(i + 1, wN + 1).setValue(newNote);
-      if (reason === 'etf')    etfMarked++;
-      else if (reason === 'neg')    negFlagged++;
-      else if (reason === 'closed') closedMarked++;
-      console.log('  ✏ ' + ticker + ' → ' + newNote);
+      if (reason === 'etf') etfMarked++;
+      else if (reason === 'neg') negFlagged++;
     }
   }
 
   console.log('');
   console.log('✅ Watchlist cleanup 完成');
-  console.log('   ETF 標記: ' + etfMarked);
-  console.log('   Closed 標記: ' + closedMarked);
+  if (hasNewCols) {
+    console.log('   asset_type 自動推斷: ' + typeInferred);
+    console.log('   lock_status 預設 tradeable: ' + lockDefaulted);
+  } else {
+    console.log('   ETF note 標記: ' + etfMarked);
+  }
+  console.log('   exit_at 自動標記（shares=0）: ' + closedMarked);
   console.log('   負值警告: ' + negFlagged);
+}
+
+
+/**
+ * 從 ticker + market 推斷 asset_type ('stock' | 'etf')
+ *
+ * 規則：
+ *   TW: 4 碼 + 開頭 "00" → ETF（00xxx 是台股 ETF 慣例）
+ *   US: 命中 KNOWN_US_ETF 名單 → ETF
+ *   HK: 一律當 stock（Cross 的 watchlist 沒港股 ETF）
+ *   其他 → stock
+ */
+function inferAssetType(ticker, market) {
+  if (!ticker) return 'stock';
+  const t = String(ticker).toUpperCase();
+  const m = String(market || '').toUpperCase();
+
+  if (m === 'TW' && /^00\d/.test(t)) return 'etf';
+
+  const KNOWN_US_ETF = new Set([
+    'VOO','VTI','QQQ','SPY','IWM','DIA','EEM','EWT','EWY','EWJ','EWZ',
+    'XLF','XLE','XLK','XLV','XLY','XLP','XLI','XLU','XLB','XLC',
+    'ARKW','ARKK','ARKG','ARKF','ARKQ','EMQQ','IDRV','IXC','SOXX',
+    'TQQQ','SQQQ','UPRO','SPXU','SOXL','SOXS','TNA','TZA','UVXY','SVXY'
+  ]);
+  if (m === 'US' && KNOWN_US_ETF.has(t)) return 'etf';
+
+  return 'stock';
 }

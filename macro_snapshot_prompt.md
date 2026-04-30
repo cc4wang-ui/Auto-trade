@@ -139,11 +139,18 @@ d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）
 
 **讀 `.claude/skills/macro-daily-analyst-report/SKILL.md`**，根據規範產出 `analyst_report` 物件。
 
+**前置**：先 POST `?endpoint=read_watchlist` 拉持倉清單。每筆都帶 `lock_status` (`tradeable` / `locked`) + `asset_type` (`stock` / `etf`)。
+
 關鍵交付：
 - `headline`：一句結論（≤35 字含燈號 emoji）
 - `top_call`：stance + conviction (HIGH/MEDIUM/LOW) + horizon + one_liner
 - `regime_narrative`：成長 / 通膨 / 估值 三軸各 1-2 句敘事（**不是指標清單**）
 - `portfolio_implications`：對 Cross 實際持倉的具體動作（ticker + 數量/比例 + 條件）
+  - 每筆**必填** `lock_status` 欄位，從 watchlist 帶入
+  - **`tradeable`** 部位：給具體買賣動作（加碼 X 股、減碼 X% 等）
+  - **`locked`** 部位（太太代持）：`stance` 寫 "監控"，`action` 寫 "太太 X 股，無動作"，**不要**給買賣建議
+  - GAS 渲染時會自動把 `locked` 部位排到下半段，標 🔒 太太代持（監控用，不操作） 分隔線
+  - ETF（`asset_type === "etf"`）只列影響 macro 的（QQQ / 00632R / IXC），純被動 ETF（VOO / VTI）可省略
 - `key_risks_ranked`：3 條，按 impact × probability 排序
 - `catalysts_24_48h`：未來 48h 真實事件
 - `key_levels`：SPX / TXF / VIX 關鍵價位
@@ -236,11 +243,12 @@ Content-Type: application/json
       "valuation_credit": "SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票相對無吸引力。HY 2.84% 信用零壓力——估值頂部訊號明確。"
     },
     "portfolio_implications": [
-      {"position": "2330 台積電", "stance": "持有", "action": "Core 不動", "trigger_to_change": "若 SPX 跌破 5450 重評"},
-      {"position": "2382 廣達", "stance": "獲利減碼", "action": "+30% 出 1,100 股 (50%)", "trigger_to_change": "若見 350 元"},
-      {"position": "1810 小米", "stance": "認賠分批", "action": "5/27 Q1 財報前出 50% (1,100 股)", "trigger_to_change": "—"},
-      {"position": "00632R 反一", "stance": "加碼", "action": "若 ERP <-1 加 10,000 股", "trigger_to_change": "ERP 跌破 -1"},
-      {"position": "IXC 能源", "stance": "持有", "action": "—", "trigger_to_change": "停火延長則平倉"}
+      {"position": "NVDA", "lock_status": "tradeable", "stance": "持有", "action": "15 股 Core 不動", "trigger_to_change": "Q1 財報後重評"},
+      {"position": "00632R 反一", "lock_status": "tradeable", "stance": "加碼", "action": "若 ERP <-1 加 5,000 股", "trigger_to_change": "ERP 跌破 -1"},
+      {"position": "IXC 能源", "lock_status": "tradeable", "stance": "持有", "action": "60 股觀察", "trigger_to_change": "停火延長則平倉"},
+      {"position": "9660 地平線", "lock_status": "tradeable", "stance": "持有", "action": "16,800 股 Core", "trigger_to_change": "—"},
+      {"position": "2330 台積電", "lock_status": "locked", "stance": "監控", "action": "太太 920 股，無動作", "trigger_to_change": "—"},
+      {"position": "2382 廣達", "lock_status": "locked", "stance": "監控", "action": "太太 2,188 股，無動作", "trigger_to_change": "—"}
     ],
     "key_risks_ranked": [
       {"rank": 1, "risk": "4/30 Core PCE March", "impact": "若 >3.0% i_score 升至 +1.2，距 Stagflation Override 僅 0.3", "probability": "中"},
