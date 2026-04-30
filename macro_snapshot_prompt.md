@@ -219,6 +219,77 @@ d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）
 
 **找不到合格新聞時**（例如假日、流量低）→ 送空陣列 `[]`，**不要省略整個欄位**。GAS 會自動跳過渲染，不會出現空標題。
 
+## Step 5.45：信用壓力（v10.1 結構性盲點補強）
+
+私人信貸 + HY spread 急升常**領先**股市 12-14 個月（2007-2008 教訓）。
+v9/v10 原本只看「市場是否已經恐慌」，沒看「信用市場是否在悄悄升溫」。
+v10.1 補上 HY 子模組，**強制升級 regime**；macro snapshot 必須帶 `credit_stress` block 給 GAS 渲染【信用壓力】section。
+
+### 5.45.1 來源優先順序
+
+1. **`read_v10_state` 回傳**（Pine v10.1 的權威值，age_sec < 5400 才用）：
+   - `state.regime` / `state.regime_base` / `state.regime_upgrade_reason`
+   - `state.hy_pressure_level` / `state.hy_weekly_jump` / `state.hy_acute_event`
+   - 全 null 表示 Pine 還是 v10.0 → fallback 到 5.45.2
+
+2. **FRED 自查 fallback**（Pine v10.0 或 stale 時）：
+   - `hy_spread_val = FRED:BAMLH0A0HYM2`（已在 Step 2 拉過）
+   - 自己算等級：
+
+```
+hy_pressure_level =
+    "CRISIS"   if hy_spread_val > 4.5
+    "WARNING"  if hy_spread_val > 3.5
+    "ELEVATED" if hy_spread_val > 3.0
+    "NORMAL"   otherwise
+
+# 一週急升（前 5 個 daily bar）
+hy_5d_ago = FRED:BAMLH0A0HYM2 lookback 5 daily bars
+hy_weekly_jump_pct = hy_spread_val - hy_5d_ago
+hy_acute_event = hy_weekly_jump_pct > 1.0  # >100bp 一週
+
+# Regime 強制升級（macro routine 端不直接 override regime；只標 regime_force）
+regime_force = "CRISIS"  if hy_pressure_level == "CRISIS" or hy_acute_event
+             = "WARNING" if hy_pressure_level == "WARNING"
+             = null      otherwise
+```
+
+### 5.45.2 填 payload
+
+```json
+"credit_stress": {
+  "hy_spread_pct": 3.62,
+  "hy_pressure_level": "WARNING",
+  "hy_weekly_jump_pct": 0.42,
+  "hy_acute_event": false,
+  "regime_force": "WARNING"
+}
+```
+
+### 5.45.3 寫 analyst_report.credit_pressure（給 narrative）
+
+NORMAL → 可省略 `credit_pressure` 整個物件（GAS 跳過渲染）。
+ELEVATED / WARNING / CRISIS → 必填：
+
+```json
+"credit_pressure": {
+  "level": "WARNING",
+  "headline": "HY 升至 3.62%，私人信貸限贖風險升溫",     // ≤ 25 字
+  "detail": "本週升 42bp（未到 acute），Apollo / Ares Q1 限贖延續"  // ≤ 50 字，可選
+}
+```
+
+寫作守則：
+- ✅ 綁具體事件 / 數字（"BlackRock HPS 假應收"、"Apollo Q1 限贖"）
+- ❌ 不要寫「信用壓力升溫值得注意」這種廢話
+
+### 5.45.4 急性事件處理
+
+`hy_acute_event = true`（一週升 >100bp） → 視為「**結構性 sell 訊號**」：
+- `top_call.stance` 強制升級至 `risk_off_hedge` 或 `risk_off_aggressive`
+- `key_risks_ranked` 第 1 條必須是 HY 急升
+- `what_proves_us_wrong` 必須包含「若 HY 一週回落 > 50bp」
+
 ## Step 5.5：套 IB 分析師寫作規範（必做）
 
 **讀 `.claude/skills/macro-daily-analyst-report/SKILL.md`**，根據規範產出 `analyst_report` 物件。
@@ -295,6 +366,13 @@ Content-Type: application/json
     "aaii_bulls": 42,
     "put_call": 0.75
   },
+  "credit_stress": {
+    "hy_spread_pct": 3.62,
+    "hy_pressure_level": "WARNING",
+    "hy_weekly_jump_pct": 0.42,
+    "hy_acute_event": false,
+    "regime_force": "WARNING"
+  },
   "v10_gates": {
     "d1_direction": "no_entry",
     "d2_pattern_quality": null,
@@ -325,6 +403,11 @@ Content-Type: application/json
       "growth": "邊界訊號 g=+0.5。ISM 仍 >52 但消費信心歷史新低，內需崩盤訊號未確認，5/2 NFP 是引信。",
       "inflation": "ISM 物價 78.3 近 4 年高，i=+0.6 距 Stagflation 觸發 (>1.5) 還有 0.9。Core PCE 4/30 補上缺口。",
       "valuation_credit": "SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票相對無吸引力。HY 2.84% 信用零壓力——估值頂部訊號明確。"
+    },
+    "credit_pressure": {
+      "level": "WARNING",
+      "headline": "HY 升至 3.62%，私人信貸限贖風險升溫",
+      "detail": "本週升 42bp（未到 acute），Apollo / Ares Q1 限贖延續；regime 強制 WARNING"
     },
     "news_pulse": [
       {"headline": "Powell 偏鷹發言暗示 6 月不降息", "source": "Bloomberg", "category": "monetary_policy", "implication": "DXY 短彈、SPX 跌 0.8%；對 00632R 加碼有利", "impacted_tickers": ["00632R", "SPX"]},

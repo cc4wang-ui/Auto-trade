@@ -56,11 +56,11 @@
 
 | 函數 | 預期 Telegram 收到 |
 |---|---|
-| `testMacroSnapshotAnalyst` | 完整宏觀報告，含【今日新聞脈絡】+ D2 Q=78 ✅ + D3 OBV up ⚪ |
-| `testV10Signal` | v10 訊號訊息含「目標: 21,805 (R:R = 1.5)」 |
-| `testEarningsSummary` | NVDA 財報訊息含【Call 重點】+【分析師 Q&A】 |
+| `testMacroSnapshotAnalyst` | 含【今日新聞脈絡】+【信用壓力】🟠 WARNING + D2 Q=78 ✅ + D3 OBV up ⚪ |
+| `testV10Signal` | 含「目標: 21,805 (R:R = 1.5)」+「Regime: 🟠 WARNING (由 NORMAL 升級)」+「↳ HY 信用壓力 (3.62%)」 |
+| `testEarningsSummary` | NVDA 財報含【Call 重點】+【分析師 Q&A】 |
 | `testV10State` | 不發 Telegram，console 看 `{"ok":true,"upserted":"TAIFEX:TXF1!"}` |
-| `testReadV10State` | 不發 Telegram，console 看 `{"ok":true,"states":[{...}]}` |
+| `testReadV10State` | console 看 `states[0]` 含 regime / hy_pressure_level 欄位 |
 
 5 個都過 → Phase 1 完成。
 
@@ -185,6 +185,10 @@ ERP 已負值無估值安全邊際；消費信心 49.8 暗示需求面崩盤
 成長：邊界訊號 g=+0.5...
 通膨：ISM 物價 78.3 近 4 年高...
 估值：SPX PE 28.1...
+
+【信用壓力】 🟠 WARNING · HY 3.62% · 週Δ +0.42%   ← v10.1 新（NORMAL 不顯示）
+HY 升至 3.62%，私人信貸限贖風險升溫
+⚠ regime 強制 WARNING
 
 【今日新聞脈絡】               ← WF2 新
 🏦 [貨幣] Powell 偏鷹發言... (Bloomberg)

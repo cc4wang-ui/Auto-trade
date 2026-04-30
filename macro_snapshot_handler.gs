@@ -118,7 +118,11 @@ function setupCheck() {
                         'price_reaction_pct', 'summary_text']);
         } else if (name === 'v10_state') {
           // Pine 每 bar close 推一筆 D2/D3 snapshot；upsert by ticker（一個 ticker 一列）
-          sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality', 'obv_direction', 'atr']);
+          // v10.1+ 加 regime / HY credit stress 欄位（v10.0 Pine 不送這些值就留空）
+          sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality',
+                        'obv_direction', 'atr',
+                        'regime', 'regime_base', 'regime_upgrade_reason',
+                        'hy_pressure_level', 'hy_weekly_jump', 'hy_acute_event']);
         }
       } else {
         console.log(`✅ Sheet "${name}" OK`);
@@ -369,6 +373,26 @@ function handleV10Signal(e) {
     if (payload.macro_score !== undefined) {
       msg += `Macro Score: <code>${fmt(payload.macro_score, 1)}</code>\n`;
     }
+    // v10.1: regime 行（被 HY 強制升級或非 NORMAL 時顯示）
+    if (payload.regime) {
+      const regimeIcon = {
+        'CRISIS':  '🔴',
+        'WARNING': '🟠',
+        'SHOCK':   '⚡',
+        'HALT':    '🛑',
+        'NORMAL':  '🟢'
+      }[String(payload.regime).toUpperCase()] || '⚪';
+      const regimeStr = String(payload.regime);
+      const upgraded = payload.regime_base && String(payload.regime_base) !== regimeStr;
+      let line = `Regime: ${regimeIcon} <b>${escapeHtml(regimeStr)}</b>`;
+      if (upgraded) {
+        line += ` <i>(由 ${escapeHtml(String(payload.regime_base))} 升級)</i>`;
+      }
+      if (payload.regime_upgrade_reason) {
+        line += `\n   <i>↳ ${escapeHtml(String(payload.regime_upgrade_reason))}</i>`;
+      }
+      msg += line + `\n`;
+    }
     msg += `\n`;
     if (payload.stop !== undefined)        msg += `停損: <code>${fmt(payload.stop)}</code>\n`;
     if (payload.trail_start !== undefined) msg += `啟動點: <code>${fmt(payload.trail_start)}</code>（浮盈 1×ATR）\n`;
@@ -469,12 +493,21 @@ function handleV10State(e) {
     let sh = ss.getSheetByName('v10_state');
     if (!sh) {
       sh = ss.insertSheet('v10_state');
-      sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality', 'obv_direction', 'atr']);
+      sh.appendRow(['ticker', 'timestamp', 'timeframe', 'price', 'pattern', 'quality',
+                    'obv_direction', 'atr',
+                    'regime', 'regime_base', 'regime_upgrade_reason',
+                    'hy_pressure_level', 'hy_weekly_jump', 'hy_acute_event']);
     }
 
     const ticker = String(payload.ticker);
     const atrNum = (payload.atr === undefined || payload.atr === null || !isFinite(Number(payload.atr)))
       ? '' : Number(payload.atr);
+    // v10.1 optional credit stress / regime fields — empty cell when not sent
+    const hyJump = payload.hy_weekly_jump;
+    const hyJumpCell = (hyJump === undefined || hyJump === null || !isFinite(Number(hyJump)))
+      ? '' : Number(hyJump);
+    const hyAcute = payload.hy_acute_event;
+    const hyAcuteCell = (hyAcute === undefined || hyAcute === null) ? '' : Boolean(hyAcute);
     const row = [
       ticker,
       new Date(),
@@ -483,7 +516,13 @@ function handleV10State(e) {
       String(payload.pattern),
       qualityNum,
       String(payload.obv_direction || 'flat'),
-      atrNum
+      atrNum,
+      payload.regime ? String(payload.regime) : '',
+      payload.regime_base ? String(payload.regime_base) : '',
+      payload.regime_upgrade_reason ? String(payload.regime_upgrade_reason) : '',
+      payload.hy_pressure_level ? String(payload.hy_pressure_level) : '',
+      hyJumpCell,
+      hyAcuteCell
     ];
 
     const lastRow = sh.getLastRow();
@@ -549,7 +588,9 @@ function handleReadV10State(e) {
     if (lastRow < 2) {
       return jsonResp({ ok: true, states: [], count: 0 });
     }
-    const rows = sh.getRange(2, 1, lastRow - 1, 8).getValues();
+    // 讀全寬，舊 8-col sheet 也能跑（新欄位回傳 null）
+    const numCols = Math.max(sh.getLastColumn(), 8);
+    const rows = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
     const nowMs = Date.now();
     const states = rows
       .filter(r => String(r[0] || '').trim() !== '')
@@ -567,7 +608,14 @@ function handleReadV10State(e) {
           pattern: String(r[4] || ''),
           quality: r[5] === '' || r[5] === null ? null : Number(r[5]),
           obv_direction: String(r[6] || 'flat'),
-          atr: r[7] === '' || r[7] === null ? null : Number(r[7])
+          atr: r[7] === '' || r[7] === null ? null : Number(r[7]),
+          // v10.1 fields — null on legacy 8-col sheets or v10.0 Pine
+          regime: r[8] ? String(r[8]) : null,
+          regime_base: r[9] ? String(r[9]) : null,
+          regime_upgrade_reason: r[10] ? String(r[10]) : null,
+          hy_pressure_level: r[11] ? String(r[11]) : null,
+          hy_weekly_jump: (r[12] === '' || r[12] === undefined || r[12] === null) ? null : Number(r[12]),
+          hy_acute_event: (r[13] === '' || r[13] === undefined || r[13] === null) ? null : Boolean(r[13])
         };
       });
 
@@ -1075,6 +1123,44 @@ function formatAnalystReport(p) {
     msg += `\n`;
   }
 
+  // 3.4 信用壓力（v10.1 新增；HY spread 等級 + 一週急升 + regime 強制升級）
+  // 來源優先：analyst_report.credit_pressure（narrative）+ top-level credit_stress（quant）
+  const cs = p.credit_stress || {};
+  const cp = a.credit_pressure || {};
+  const hyLevel = cp.level || cs.hy_pressure_level || null;
+  const hyJump  = cs.hy_weekly_jump_pct;
+  const hySpread = cs.hy_spread_pct;
+  const hyAcute = Boolean(cs.hy_acute_event);
+  if (hyLevel || hySpread !== undefined || cp.headline || cp.detail) {
+    const levelEmoji = {
+      'CRISIS':   '🔴',
+      'WARNING':  '🟠',
+      'ELEVATED': '🟡',
+      'NORMAL':   '🟢',
+      'N/A':      '⚪'
+    }[String(hyLevel || '').toUpperCase()] || '⚪';
+    msg += `<b>【信用壓力】</b> ${levelEmoji} ${escapeHtml(String(hyLevel || 'N/A'))}`;
+    if (hySpread !== undefined && hySpread !== null) {
+      msg += ` · HY <code>${fmt(hySpread, 2)}%</code>`;
+    }
+    if (hyJump !== undefined && hyJump !== null) {
+      // fmt() 已在 ≥0 時自動加 + 前綴，不要重複加
+      const jumpIcon = hyAcute ? ' 🔴急升' : (hyJump > 0.5 ? ' 🟡升溫' : '');
+      msg += ` · 週Δ <code>${fmt(hyJump, 2)}%</code>${jumpIcon}`;
+    }
+    msg += `\n`;
+    if (cp.headline) {
+      msg += `<i>${escapeHtml(String(cp.headline))}</i>\n`;
+    }
+    if (cp.detail) {
+      msg += `${escapeHtml(String(cp.detail))}\n`;
+    }
+    if (cs.regime_force) {
+      msg += `<b>⚠ regime 強制 ${escapeHtml(String(cs.regime_force))}</b>\n`;
+    }
+    msg += `\n`;
+  }
+
   // 3.5 今日新聞脈絡（4-6 條當日重要財經新聞，過濾過 macro 相關）
   if (Array.isArray(a.news_pulse) && a.news_pulse.length > 0) {
     msg += `<b>【今日新聞脈絡】</b>\n`;
@@ -1491,6 +1577,13 @@ function testMacroSnapshotAnalyst() {
           needs_tradingview_check: false,
           v10_state_age_sec: 312
         },
+        credit_stress: {
+          hy_spread_pct: 3.62,
+          hy_pressure_level: 'WARNING',
+          hy_weekly_jump_pct: 0.42,
+          hy_acute_event: false,
+          regime_force: 'WARNING'
+        },
         actionable: {
           summary: '黃燈待機',
           key_risks: ['Core PCE', '消費信心', 'ERP 負值'],
@@ -1498,6 +1591,11 @@ function testMacroSnapshotAnalyst() {
         },
         analyst_report: {
           headline: '🟡 黃燈待機 — 估值頂 + 消費信心歷史新低',
+          credit_pressure: {
+            level: 'WARNING',
+            headline: 'HY 升至 3.62%，私人信貸限贖風險升溫',
+            detail: '本週升 42bp（未到 acute），Apollo / Ares Q1 限贖延續；regime 強制 WARNING'
+          },
           top_call: {
             stance: 'neutral_defensive',
             stance_label: '中性偏防禦',
@@ -1568,6 +1666,12 @@ function testV10Signal() {
         trail_start: 21680.00,
         target: 21805.00,
         target_r: 1.5,
+        regime: 'WARNING',
+        regime_base: 'NORMAL',
+        regime_upgrade_reason: 'HY 信用壓力 (3.62%)',
+        hy_pressure_level: 'WARNING',
+        hy_weekly_jump: 0.42,
+        hy_acute_event: false,
         timestamp: String(Date.now())
       })
     }
@@ -1683,6 +1787,12 @@ function testV10State() {
         quality: 78,
         obv_direction: 'up',
         atr: 145.50,
+        regime: 'WARNING',
+        regime_base: 'NORMAL',
+        regime_upgrade_reason: 'HY 信用壓力 (3.62%)',
+        hy_pressure_level: 'WARNING',
+        hy_weekly_jump: 0.42,
+        hy_acute_event: false,
         timestamp: String(Date.now())
       })
     }
