@@ -786,6 +786,21 @@ function parseFloatLoose(v) {
 // ============================================================
 // Macro Snapshot 訊息格式化
 // ============================================================
+
+/** news_pulse 章節：category → emoji + 中文 label 對應表 */
+const NEWS_CATEGORY_ICON = {
+  monetary_policy:  { emoji: '🏦', label: '貨幣' },
+  geopolitics:      { emoji: '🌏', label: '地緣' },
+  inflation:        { emoji: '📈', label: '通膨' },
+  growth:           { emoji: '🏭', label: '成長' },
+  semis:            { emoji: '💻', label: '半導體' },
+  oil_energy:       { emoji: '🛢', label: '油氣' },
+  fx_rates:         { emoji: '💱', label: '匯率' },
+  china_macro:      { emoji: '🇨🇳', label: '中國' },
+  tech_regulation:  { emoji: '⚖', label: '科技法規' }
+};
+const NEWS_CATEGORY_DEFAULT = { emoji: '📰', label: '一般' };
+
 function formatMacroMessage(p) {
   // 優先：IB 分析師格式（Routine 帶 analyst_report 時走新版）
   if (p.analyst_report && p.analyst_report.headline) {
@@ -850,6 +865,24 @@ function formatAnalystReport(p) {
     if (rn.growth)           msg += `• 成長：${escapeHtml(String(rn.growth))}\n`;
     if (rn.inflation)        msg += `• 通膨：${escapeHtml(String(rn.inflation))}\n`;
     if (rn.valuation_credit) msg += `• 估值：${escapeHtml(String(rn.valuation_credit))}\n`;
+    msg += `\n`;
+  }
+
+  // 3.5 今日新聞脈絡（4-6 條當日重要財經新聞，過濾過 macro 相關）
+  if (Array.isArray(a.news_pulse) && a.news_pulse.length > 0) {
+    msg += `<b>【今日新聞脈絡】</b>\n`;
+    a.news_pulse.forEach(n => {
+      const catKey = String(n.category || '').toLowerCase();
+      const cat = NEWS_CATEGORY_ICON[catKey] || NEWS_CATEGORY_DEFAULT;
+      const headline = escapeHtml(String(n.headline || ''));
+      const source = escapeHtml(String(n.source || ''));
+      const implication = escapeHtml(String(n.implication || ''));
+      const sourceText = source ? ` (${source})` : '';
+      msg += `${cat.emoji} [${escapeHtml(cat.label)}] ${headline}${sourceText}\n`;
+      if (implication) {
+        msg += `   → ${implication}\n`;
+      }
+    });
     msg += `\n`;
   }
 
@@ -1238,6 +1271,12 @@ function testMacroSnapshotAnalyst() {
             inflation: 'ISM 物價 78.3 近 4 年高，i=+0.6 距 Stagflation 觸發還有 0.9。',
             valuation_credit: 'SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票無吸引力。'
           },
+          news_pulse: [
+            { headline: 'Powell 偏鷹發言暗示 6 月不降息', source: 'Bloomberg', category: 'monetary_policy', implication: 'DXY 短彈、SPX 跌 0.8%；對 00632R 加碼有利', impacted_tickers: ['00632R', 'SPX'] },
+            { headline: 'OPEC+ 6 月會議延後決議產量', source: 'Reuters', category: 'oil_energy', implication: '油價平週橫盤；IXC 短期無 catalyst', impacted_tickers: ['IXC'] },
+            { headline: '美擬擴大對中 HBM 出口管制', source: 'WSJ', category: 'semis', implication: '2330 / 9660 短期承壓，長期份額不變', impacted_tickers: ['2330', '9660'] },
+            { headline: '以色列伊朗停火延長 30 天', source: '中央社', category: 'geopolitics', implication: 'IXC 平倉訊號正在積分', impacted_tickers: ['IXC'] }
+          ],
           portfolio_implications: [
             { position: '2330 台積電', stance: '持有', action: 'Core 不動', trigger_to_change: '若 SPX 跌破 5450 重評' },
             { position: '2382 廣達', stance: '獲利減碼', action: '+30% 出 1,100 股', trigger_to_change: '若見 350 元' },

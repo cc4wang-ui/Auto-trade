@@ -135,6 +135,49 @@ d4_cooldown = "ok"       if 距上次訊號 ≥ 20 K 線（約 20 小時）
 # 若沒辦法讀 → 假設 "ok"
 ```
 
+## Step 5.4：拉今日新聞脈絡（必做，餵 `news_pulse`）
+
+撈當日 4-6 條會驅動 macro / Cross 持倉的新聞，餵給 `analyst_report.news_pulse`。
+
+**搜尋指令範例**（依當下 session 語言切換）：
+- `web_search "today financial news US Asia macro"`
+- `web_search "今日財經新聞 台股"`
+- `web_search "Fed Powell rate decision today"`（有事件時）
+- `web_search "OPEC oil price today"`、`web_search "中美半導體出口管制 今日"`
+
+**來源優先順序**（信任度高 → 低）：
+1. Bloomberg / Reuters / WSJ / FT
+2. 鉅亨網 / 工商時報 / 經濟日報 / 中央社
+3. CNBC / MarketWatch / Nikkei Asia
+4. 公司 IR / Press Release（只在重大時）
+
+**過濾守則（嚴格）**：
+- ✅ 留：央行決策、地緣（戰爭/制裁/關稅）、油價地緣、半導體政策、關鍵宏觀數據（CPI/NFP/ISM）、重大企業財報暗示 macro
+- ❌ 砍：個股零碎財報、人事異動、八卦、生活財經、加密貨幣（除非牽動 risk-on/off）
+- ❌ 砍：「市場觀察」「分析師看好」沒實質事件的軟新聞
+
+**字數紀律**：
+- `headline` ≤ 30 字（中英都算字元）
+- `implication` ≤ 40 字，必須**綁 Cross 持倉或 macro 軸**（例如「對 00632R 加碼有利」「IXC 平倉訊號正在積分」）
+- 不要寫「市場可能下跌」這種沒方向的廢話
+
+**每條物件結構**：
+
+```json
+{
+  "headline": "Powell 偏鷹發言暗示 6 月不降息",
+  "source": "Bloomberg",
+  "category": "monetary_policy",
+  "implication": "DXY 短彈、SPX 跌 0.8%；對 00632R 加碼有利",
+  "impacted_tickers": ["00632R", "SPX"]
+}
+```
+
+**`category` 列舉值（必須是其中之一）**：
+`monetary_policy` / `geopolitics` / `inflation` / `growth` / `semis` / `oil_energy` / `fx_rates` / `china_macro` / `tech_regulation`
+
+**找不到合格新聞時**（例如假日、流量低）→ 送空陣列 `[]`，**不要省略整個欄位**。GAS 會自動跳過渲染，不會出現空標題。
+
 ## Step 5.5：套 IB 分析師寫作規範（必做）
 
 **讀 `.claude/skills/macro-daily-analyst-report/SKILL.md`**，根據規範產出 `analyst_report` 物件。
@@ -242,6 +285,12 @@ Content-Type: application/json
       "inflation": "ISM 物價 78.3 近 4 年高，i=+0.6 距 Stagflation 觸發 (>1.5) 還有 0.9。Core PCE 4/30 補上缺口。",
       "valuation_credit": "SPX PE 28.1、CAPE 39.6 雙重高估，ERP -0.79% 股票相對無吸引力。HY 2.84% 信用零壓力——估值頂部訊號明確。"
     },
+    "news_pulse": [
+      {"headline": "Powell 偏鷹發言暗示 6 月不降息", "source": "Bloomberg", "category": "monetary_policy", "implication": "DXY 短彈、SPX 跌 0.8%；對 00632R 加碼有利", "impacted_tickers": ["00632R", "SPX"]},
+      {"headline": "OPEC+ 6 月會議延後決議產量", "source": "Reuters", "category": "oil_energy", "implication": "油價平週橫盤；IXC 短期無 catalyst", "impacted_tickers": ["IXC"]},
+      {"headline": "美擬擴大對中 HBM 出口管制", "source": "WSJ", "category": "semis", "implication": "2330 / 9660 短期承壓，長期份額不變", "impacted_tickers": ["2330", "9660"]},
+      {"headline": "以色列伊朗停火延長 30 天", "source": "中央社", "category": "geopolitics", "implication": "IXC 平倉訊號正在積分", "impacted_tickers": ["IXC"]}
+    ],
     "portfolio_implications": [
       {"position": "NVDA", "lock_status": "tradeable", "stance": "持有", "action": "15 股 Core 不動", "trigger_to_change": "Q1 財報後重評"},
       {"position": "00632R 反一", "lock_status": "tradeable", "stance": "加碼", "action": "若 ERP <-1 加 5,000 股", "trigger_to_change": "ERP 跌破 -1"},
