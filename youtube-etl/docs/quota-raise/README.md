@@ -11,6 +11,7 @@
 | 檔案 | 用途 |
 |---|---|
 | `email-reply.txt` | 完整 email body，純文字格式，**直接複製到 Gmail 即可** |
+| `self-test-guide.md` | **自己拉 sample data 的步驟**（兩條路：30 分鐘快路 / 完整 Python 路） |
 | `dashboard-layout-mockup.md` | Dashboard 設計稿（5 tabs），轉成 PDF 後 attach 為 `Planned_dashboard_layout.pdf` |
 | `README.md` | 本文（操作說明） |
 
@@ -24,16 +25,18 @@ GCP Console 首頁 → 你的 project info card → **Project number** 是純數
 
 打開 `email-reply.txt` 搜尋 `[YOUR_PROJECT_NUMBER]`，整個替換成那個數字。
 
-### 2. 跟宮前 san 要 1 張螢幕截圖
+### 2. 自己拉 sample data 並截圖（不依靠宮前）
 
-請他截 `獅子神レオナ_日次レポート` Sheet 的全螢幕：
+照 `self-test-guide.md` 跑，挑一條：
 
-- 要看到 column header（date / title / URL / views / likes / comments）
-- 要看到至少 5-10 row 真實資料
-- **不要含 PII**（像觀眾留言名單之類，幸好他這份 POC 只有匯總數字）
-- 存成 `Sample_internal_report.png`
+| 路徑 | 時間 | 何時用 |
+|---|---|---|
+| **A. 快路** — API Explorer + 手填 Sheet | 30-45 分鐘 | reviewer 第一輪 sample report 夠用，不依賴 OAuth setup |
+| **B. 完整路** — Python script 拉 Analytics 自動寫 Sheet | 1.5-2 小時 | 順便完成 Phase 0 STEP 4 OAuth bootstrap，一石二鳥 |
 
-**如果宮前不在線**：自己開那個 Sheet（你應該有 access）截一張即可。
+**建議走 Path A**（reviewer 第一輪只要看 sample，不需要 production-grade 證據）。
+
+兩條路最後產出：`Sample_internal_report.png`（你 own 的 Google Sheet 全螢幕截圖）。
 
 ### 3. 把 dashboard mockup 轉 PDF
 

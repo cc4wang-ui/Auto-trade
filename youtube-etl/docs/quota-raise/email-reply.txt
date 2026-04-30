@@ -8,7 +8,7 @@ Thank you for your review and for the opportunity to provide additional informat
 1. SAMPLE REPORT  (attachment: Sample_internal_report.png)
 ────────────────────────────────────────────────────────────
 
-Attached is a screenshot of an existing internal Google Sheet currently in active use by our team to track one of our managed channels (channel ID UCB1s_IdO-r0nUkY2mXeti-A). The sheet aggregates daily metrics fetched via the same YouTube Data API v3 and YouTube Analytics API v2 endpoints that the production pipeline will use at scale.
+Attached is a screenshot of an internal Google Sheet maintained by our team showing sample metrics for one of our managed channels (channel ID UCB1s_IdO-r0nUkY2mXeti-A). The data is fetched directly via YouTube Data API v3 (and YouTube Analytics API v2 for revenue and uniqueViewers figures) by our internal team, using the same fetch pattern that the production pipeline will scale to ~50 channels.
 
 Columns shown:
   - Date
