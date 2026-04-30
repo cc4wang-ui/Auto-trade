@@ -116,6 +116,7 @@ tablePos  = input.string("右上", "儀表板位置", options=["左上","右上"
 g_webhook = "═══ Webhook（推 Telegram bot 用）═══"
 useWebhook = input.bool(true, "啟用 webhook 推送", group=g_webhook)
 pineSecret = input.string("", "Webhook secret", group=g_webhook, tooltip="必填：與 GAS Script Property PINE_ALERT_SECRET 相同的隨機字串", confirm=true)
+rrTarget   = input.float(1.5, "R:R 目標倍數", options=[1.0, 1.5, 2.0], group=g_webhook, tooltip="目標價 = 進場 ± (進場-停損) × R:R。GAS 用此渲染「目標」行；不影響策略退場邏輯（仍 1.5×ATR + 23% 拉回 + OBV 翻轉）。")
 
 // ============================================================
 // LAYER 1: 全域計算（ta.* 必須在全域 scope - P3-1）
@@ -641,6 +642,8 @@ bool shortSignal = d1_short_ok and d2_short_ok and d3_short_ok and cooldownPass 
 
 // ─── 進場 ───
 if longSignal
+    float longStop   = close - atr14 * stopAtrMult
+    float longTarget = close + (close - longStop) * rrTarget
     string alertMsg = '{"secret":"' + pineSecret + '",' +
        '"action":"buy",' +
        '"ticker":"' + syminfo.ticker + '",' +
@@ -649,8 +652,10 @@ if longSignal
        '"pattern":"' + topName + '",' +
        '"quality":' + str.tostring(topQ, "#") + ',' +
        '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
-       '"stop":' + str.tostring(close - atr14 * stopAtrMult, "#.##") + ',' +
+       '"stop":' + str.tostring(longStop, "#.##") + ',' +
        '"trail_start":' + str.tostring(close + atr14 * trailStartAtr, "#.##") + ',' +
+       '"target":' + str.tostring(longTarget, "#.##") + ',' +
+       '"target_r":' + str.tostring(rrTarget, "#.#") + ',' +
        '"timestamp":"' + str.tostring(time, "#") + '"}'
     strategy.entry("Long", strategy.long, alert_message=alertMsg, comment=topName + " | Score=" + str.tostring(total_score, "#"))
     lastEntryBar := bar_index
@@ -662,6 +667,8 @@ if longSignal
     trailActive := false
 
 if shortSignal
+    float shortStop   = close + atr14 * stopAtrMult
+    float shortTarget = close - (shortStop - close) * rrTarget
     string alertMsg = '{"secret":"' + pineSecret + '",' +
        '"action":"sell",' +
        '"ticker":"' + syminfo.ticker + '",' +
@@ -670,8 +677,10 @@ if shortSignal
        '"pattern":"' + topName + '",' +
        '"quality":' + str.tostring(topQ, "#") + ',' +
        '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
-       '"stop":' + str.tostring(close + atr14 * stopAtrMult, "#.##") + ',' +
+       '"stop":' + str.tostring(shortStop, "#.##") + ',' +
        '"trail_start":' + str.tostring(close - atr14 * trailStartAtr, "#.##") + ',' +
+       '"target":' + str.tostring(shortTarget, "#.##") + ',' +
+       '"target_r":' + str.tostring(rrTarget, "#.#") + ',' +
        '"timestamp":"' + str.tostring(time, "#") + '"}'
     strategy.entry("Short", strategy.short, alert_message=alertMsg, comment=topName + " | Score=" + str.tostring(total_score, "#"))
     lastEntryBar := bar_index
@@ -936,3 +945,24 @@ bgcolor(d1_long_ok ? color.new(color.green, 95) : d1_short_ok ? color.new(color.
 //   不要在 message 前後加文字，否則 GAS 會收到非 JSON 字串而 invalid_json
 alertcondition(longSignal,  title="V10 做多訊號", message="{{strategy.order.alert_message}}")
 alertcondition(shortSignal, title="V10 做空訊號", message="{{strategy.order.alert_message}}")
+
+// ═══ Daily snapshot（每 bar close 把 D2/D3 推給 GAS） ═══
+// macro routine 用 read_v10_state 拉這份 snapshot 取代手動進 TV 看 D2/D3
+// 用既有 obv_sma + atr14 + topName + topQ，na-safe
+if useWebhook and barstate.isconfirmed
+    string snapObvDir = na(obv_sma) or na(obv_sma1) ? "flat" :
+                       obv_sma > obv_sma1 ? "up" :
+                       obv_sma < obv_sma1 ? "down" : "flat"
+    string snapPattern = na(topName) or topName == "" ? "none" : topName
+    float  snapQ       = na(topQ) ? 0.0 : topQ
+    float  snapAtr     = na(atr14) ? 0.0 : atr14
+    string snapMsg = '{"secret":"' + pineSecret + '",' +
+       '"ticker":"' + syminfo.ticker + '",' +
+       '"timeframe":"' + timeframe.period + '",' +
+       '"price":' + str.tostring(close, "#.##") + ',' +
+       '"pattern":"' + snapPattern + '",' +
+       '"quality":' + str.tostring(snapQ, "#") + ',' +
+       '"obv_direction":"' + snapObvDir + '",' +
+       '"atr":' + str.tostring(snapAtr, "#.##") + ',' +
+       '"timestamp":"' + str.tostring(time, "#") + '"}'
+    alert(snapMsg, alert.freq_once_per_bar_close)
