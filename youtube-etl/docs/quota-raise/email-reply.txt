@@ -1,0 +1,175 @@
+Subject: Re: YouTube API Quota Raise Request — Supplementary visual reference and clarification
+
+Dear YouTube API Services Team,
+
+Thank you for your review and for the opportunity to provide additional information. Please find below the requested sample report, the visual reference for how data is fetched and presented, the storage / client location, and the full range of analytics covered by this application.
+
+────────────────────────────────────────────────────────────
+1. SAMPLE REPORT  (attachment: Sample_internal_report.png)
+────────────────────────────────────────────────────────────
+
+Attached is a screenshot of an existing internal Google Sheet currently in active use by our team to track one of our managed channels (channel ID UCB1s_IdO-r0nUkY2mXeti-A). The sheet aggregates daily metrics fetched via the same YouTube Data API v3 and YouTube Analytics API v2 endpoints that the production pipeline will use at scale.
+
+Columns shown:
+  - Date
+  - Video title
+  - Video URL
+  - Views (daily)
+  - Likes (daily)
+  - Comments (daily)
+
+This is the current proof-of-concept; the production system migrates the same fetch-and-display pattern to ~50 channels with automated daily / hourly / 5-minute polling, and adds additional analytics dimensions described in section 2.
+
+────────────────────────────────────────────────────────────
+2. PRESENTED LAYOUT — FULL RANGE OF ANALYTICS
+   (attachment: Planned_dashboard_layout.pdf)
+────────────────────────────────────────────────────────────
+
+The production data is presented to ~10 internal employees via Google Connected Sheets, sourced from BigQuery. The workbook contains five tabs covering the full range of analytics fetched:
+
+  Tab 1 — Overview
+    All 50 managed channels ranked by 7-day, 30-day, and 90-day
+    views, likes, comments, and estimated revenue. Used by
+    leadership for portfolio-level performance review.
+
+  Tab 2 — Per-Manager
+    Nine talent-management groups (Manzoku, Kamata, Heimao, Nagai,
+    Takaichi, Shiratori, Katabami, Franky, Official) with aggregated
+    metrics and per-talent comparison within each group. Used by
+    each manager for team review.
+
+  Tab 3 — Per-Talent (drill-down)
+    Single-channel 90-day daily time series of:
+      - views, uniqueViewers
+      - estimatedMinutesWatched, averageViewDuration
+      - estimatedRevenue, estimatedAdRevenue, cpm
+      - subscribersGained, subscribersLost
+      - top videos ranked by views and by comment velocity
+
+  Tab 4 — Live Watch
+    Channels currently broadcasting live, with concurrent viewer
+    counts updated every 5 minutes via the videos.list endpoint
+    (parts liveStreamingDetails + statistics). Historical concurrent
+    peaks are captured during the broadcast and persisted to
+    BigQuery, since they are not retrievable post-broadcast.
+
+  Tab 5 — Tag Insights
+    Content category distribution per talent (e.g. gaming, music,
+    talk-show, collab) used for content-mix planning. Tags are
+    derived internally from video title + description by an NLP step
+    and stored alongside the metric data in BigQuery; no external
+    classifier service is involved.
+
+Refresh schedule : daily 09:00 JST via Connected Sheets scheduled
+                   refresh, plus on-demand refresh by team members.
+Access control   : view-only, restricted to ~10 internal production-
+                   team members via Google Workspace SSO. The
+                   workbook is not externally shared, not embedded
+                   on any public site, and not exported to third
+                   parties.
+
+────────────────────────────────────────────────────────────
+3. APPLICATION CONTEXT
+────────────────────────────────────────────────────────────
+
+  Operator        : mikai Inc. (株式会社mikai), a wholly-owned
+                    subsidiary of 17LIVE Inc. (17LIVE株式会社).
+                    mikai operates as a YouTube talent management
+                    agency.
+
+  Channels        : Approximately 50 YouTube channels that mikai
+                    either owns directly or contractually manages
+                    on behalf of signed talent. mikai holds channel
+                    owner / admin access on every channel covered
+                    by this application via a shared Google account.
+
+  Audience        : Approximately 10 internal employees on the
+                    content production, talent management, and
+                    finance teams. No external user access. The
+                    application is not a consumer-facing product
+                    and is not offered to external customers.
+
+  Storage         : Google Cloud BigQuery, GCP project number
+                    [YOUR_PROJECT_NUMBER], inside the 17LIVE Google
+                    Cloud organization. IAM access is scoped to
+                    internal Google Workspace accounts only.
+
+  Presentation    : Google Workspace (Connected Sheets). Internal
+                    distribution only. No public web application,
+                    mobile application, partner API, embedded widget,
+                    or third-party redistribution.
+
+  Authentication  : OAuth 2.0 against the mikai administrator Google
+                    account that holds owner / admin permissions on
+                    each managed channel. This is NOT end-user OAuth;
+                    no consumer YouTube users authorize this
+                    application.
+
+────────────────────────────────────────────────────────────
+4. DATA FIELDS AND API METHODS
+────────────────────────────────────────────────────────────
+
+  YouTube Data API v3 endpoints used:
+    - videos.list         (parts: statistics, snippet,
+                           contentDetails, liveStreamingDetails)
+    - commentThreads.list (top-level threads only; replies are not
+                           fetched)
+    - search.list         (recent uploads, hourly)
+    - channels.list       (initial channel metadata, infrequent)
+
+  YouTube Analytics API v2 — channel-level daily report metrics:
+    - views                    - uniqueViewers
+    - estimatedMinutesWatched  - averageViewDuration
+    - estimatedRevenue         - estimatedAdRevenue
+    - cpm                      - subscribersGained
+    - subscribersLost          - likes
+    - shares                   - comments
+
+  Each Analytics report is one HTTP call per (channel, date). To
+  account for YouTube's documented multi-day Analytics number
+  finalisation, the pipeline re-fetches the past 7 days each run
+  and upserts on (channel_id, report_date), so the stored numbers
+  always reflect the latest YouTube-published values.
+
+────────────────────────────────────────────────────────────
+5. DAILY QUOTA ESTIMATE (REVISED)
+────────────────────────────────────────────────────────────
+
+  Workload                                              Units / day
+  ───────────────────────────────────────────────────  ────────────
+  Daily full sweep, 50 channels                                3,000
+  (videos.list + search.list)
+  Hourly poll for content < 48 hours old                       7,000
+  5-minute live-broadcast poll (variable, when active)  3,000 - 15,000
+  Comment fetch (hourly + daily)                               2,500
+                                                       ─────────────
+  Total Data API                                       15,500 - 27,500
+
+We are requesting 100,000 units/day to absorb retry traffic, account for the variable live-broadcast workload, and leave reasonable headroom for adding additional managed channels over the next 12 months.
+
+YouTube Analytics API v2 is governed by a separate quota and is estimated at ~350 calls/day (50 channels × 7-day backfill window), well within default limits.
+
+────────────────────────────────────────────────────────────
+6. COMPLIANCE CONFIRMATIONS
+────────────────────────────────────────────────────────────
+
+  - We will not display API data in a public product, mobile app,
+    or any external surface.
+  - We will not redistribute API data to any third party.
+  - We will respect the YouTube API Services Terms of Service, the
+    Developer Policies, and the YouTube Branding Guidelines.
+  - Data retention is internal-only; channel data is purged when a
+    talent contract ends.
+  - We will not use API data to train machine-learning models for
+    redistribution or for any commercial AI product.
+
+Please let me know if any further evidence would help complete the review — for example, a sample IAM policy export, a redacted talent management agreement under NDA, or a screen-share walkthrough of the BigQuery schema and the Connected Sheets workbook.
+
+Thank you for your time and for the careful review.
+
+Best regards,
+
+Cross Wang
+Chief Operating Officer, mikai Inc.
+(wholly-owned subsidiary of 17LIVE Inc.)
+crosswang@17.media
