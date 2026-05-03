@@ -59,6 +59,14 @@
 25. **財務分析必須按順序** — ① 搜即時股價 → ② 搜財報數據 → ③ 算 PE → ④ 跑篩選 → ⑤ 建表。跳過任何步驟就會出錯。尤其不可「覺得自己知道」就跳過步驟①。越熟悉的股票越容易犯錯。
 26. **交叉驗證** — 每個數字都要 sanity check。PE × EPS 應 ≈ 股價。可買股數 × 股價 應 ≈ 預算。不一致代表某個輸入有誤。
 
+### GAS Web App / Routine 陷阱（2026/05/03 新增）
+
+27. **[GAS] GAS_WEBHOOK_URL secret 必須含 `?endpoint=macro_snapshot`** — GAS 路由靠 `e.parameter.endpoint` 判斷；若 URL 沒有此 query string，所有請求會 fallthrough 到 `handleTelegramUpdate`（或丟 `ReferenceError: handleTelegramUpdate is not defined`）。下次確認 Secret 值格式：`https://script.google.com/macros/s/.../exec?endpoint=macro_snapshot`。目前 Routine 腳本已修正為 `${GAS_BASE}?endpoint=macro_snapshot`。
+
+28. **[GAS] curl -L POST + GAS 302 redirect → 405 是假錯誤** — GAS 收到 POST 後：① 執行 `doPost` 送 Telegram ② 回傳 302 redirect 到 `script.googleusercontent.com`。curl 用 -L 跟隨重定向時會把 POST 轉成 GET，googleusercontent.com 的 GET 有時返回 405。**這不代表 GAS 失敗**——Telegram 訊息已在步驟①送出。正確判斷方式：不加 -L，手動 GET redirect URL，確認返回 `{"ok":true,...}`。或用 `dedup:true` 確認已執行過。
+
+29. **[GAS] 正確 curl 模式** — `curl -s -X POST "$GAS_URL?endpoint=macro_snapshot" -H "Content-Type: application/json" --data-binary @payload.json -D /tmp/h.txt -o /tmp/b.txt` 然後 `curl -sG "$(grep -i location /tmp/h.txt | sed 's/location: //i')"` 才能看到真正的 JSON 回應。加 -L 會因 302→GET 失敗。
+
 ## 溝通原則
 
 ### 做
