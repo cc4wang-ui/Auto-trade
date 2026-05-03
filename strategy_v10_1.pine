@@ -1,0 +1,1031 @@
+// ============================================================
+// 小台指宏觀趨勢跟隨策略 v10.1
+//
+// v10.1 變更（2026-05-03）：
+//   + 私人信貸壓力子模組（HY 等級 + 一週急性跳升）
+//   + HY CRISIS 或急性事件 → 強制紅燈（類比 stagflation_override）
+//   + Marks 信用扣分改為等級制（NORMAL/ELEVATED/WARNING/CRISIS）
+//   + Dashboard 新增 HY 區塊（HY 等級 / 一週變化 / 強制紅燈原因）
+//   + 新增 alert：HY 急性跳升 / 進入信用危機
+//   + 不新增 request.security（沿用 hy_spread；計數仍 13/40）
+//
+// 架構：
+//   Layer M: Macro Score v3（方向燈：四季+Marks+情緒逆向）
+//   Layer 1: 全域計算（ATR/OBV/avgVol）
+//   Layer 2: Zigzag 統一序列（P1-1 修正）
+//   Layer 3: 型態偵測（6 核心型態：3 多 + 3 空）
+//   Layer 4: 後處理（品質過濾/冷卻/排序）
+//   Layer 5: 四門進場 + 波段追蹤出場
+//   Layer 6: Dashboard
+//
+// Gotcha 遵守清單：
+//   #20 stop/limit 用價格，不用 tick 單位 trail_points
+//   #22 process_orders_on_close = true
+//   #27 Stagflation Override：Score<-40 且通膨>+1.5 → 允許紅燈
+//   #28 情緒逆向降權線 -30
+//   #29 ERP 負值單項扣 6 分
+//   #30 四季門檻 ±0.5
+//   #31 紅燈 = 積極做空
+//   #32 23% 停利的 1x ATR 啟動門檻
+//   #33 (v10.1) HY spread 急性跳升 OR CRISIS 等級 → 強制紅燈
+//   P1-1 Zigzag 統一序列（不分 phP/plP 獨立存）
+//   P1-2 形成中/已突破雙狀態
+//   P2-1 品質因子校準（深度 1x ATR、突破 0.3x ATR、量能 1.2x、對稱容差 30%）
+//   P3-1 ta.* 函數在全域 scope
+//   P3-2 全域計算值在工具函數之前
+//   P3-3 函數只收集，不副作用
+//   P3-4 移除 barstate.isconfirmed，reactive label
+//   P3-5 array.get 用巢狀 if，不放 and/or/ternary
+//   P4-1 table 行數留足夠餘量
+// ============================================================
+//@version=5
+strategy("小台宏觀策略 v10.1", overlay=true, max_bars_back=500,
+     initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=100,
+     pyramiding=0, process_orders_on_close=true, calc_on_every_tick=true,
+     currency=currency.NONE)
+
+// ============================================================
+// LAYER 0: 輸入設定
+// ============================================================
+
+// ─── Macro Score v3：成長軸（每月手動更新）───
+g_growth = "═══ Macro 成長軸（月更）═══"
+ism_mfg             = input.float(52.7, "ISM 製造業",           minval=30, maxval=70, group=g_growth, tooltip="> 52 偏多 / 50-52 中性 / < 50 扣分。每月第 1 工作日公布")
+ism_new_orders      = input.float(53.5, "ISM 新訂單",           minval=30, maxval=70, group=g_growth, tooltip="方向比水位重要")
+ism_new_orders_prev = input.float(55.8, "ISM 新訂單（上月）",  minval=30, maxval=70, group=g_growth, tooltip="用於判斷方向")
+nfp_k               = input.float(178,  "NFP 非農（千人）",    minval=-500, maxval=1000, group=g_growth, tooltip="> 150 偏多 / < 100 扣重分。每月第 1 週五")
+consumer_sentiment  = input.float(57.9, "消費者信心",           minval=30, maxval=120, group=g_growth, tooltip="密西根大學指數")
+ism_employment      = input.float(48.7, "ISM 就業",             minval=30, maxval=70, group=g_growth, tooltip="< 47 扣重分")
+
+// ─── Macro Score v3：通膨軸（月更）───
+g_infl = "═══ Macro 通膨軸（月更）═══"
+ism_prices     = input.float(78.3,  "ISM 物價支付",  minval=30, maxval=100, group=g_infl, tooltip="> 65 通膨升溫重扣")
+core_pce_yoy   = input.float(3.1,   "Core PCE YoY%", minval=0, maxval=10, group=g_infl, tooltip="每月最後一週公布。Fed 目標 2%")
+avg_hourly_yoy = input.float(3.5,   "平均時薪 YoY%", minval=0, maxval=10, group=g_infl, tooltip="每月第 1 週五隨 NFP 公布")
+
+// ─── Macro Score v3：估值（週更/季更）───
+g_valuation = "═══ Marks 估值（週更/季更）═══"
+spx_pe_input = input.float(28.4, "SPX PE (trailing)", minval=5, maxval=60, group=g_valuation, tooltip="> 25 開始扣。每季 EPS 更新後校準")
+tw_pe_input  = input.float(29.5, "台股加權 PE",       minval=5, maxval=60, group=g_valuation, tooltip="> 22 開始扣")
+cape_input   = input.float(35.0, "CAPE Shiller PE",   minval=5, maxval=60, group=g_valuation, tooltip="> 35 歷史極端區")
+
+// ─── Macro Score v3：情緒（週更）───
+g_sentiment = "═══ 情緒（週更）═══"
+put_call_input = input.float(0.75, "Put/Call Ratio", minval=0.3, maxval=2.5, group=g_sentiment, tooltip="> 1.2 恐慌逆向加分。CBOE 每日更新，TradingView 免費帳號不一定有 → 用 input 手動輸入")
+aaii_bears     = input.float(30,   "AAII 空頭 %",    minval=0, maxval=80, group=g_sentiment, tooltip="> 45 逆向加分。每週四公布")
+aaii_bulls     = input.float(42,   "AAII 多頭 %",    minval=0, maxval=80, group=g_sentiment, tooltip="> 55 逆向扣分")
+
+// ─── 四門進場設定 ───
+g_gates = "═══ 四門進場門檻 ═══"
+d_green_thr    = input.int(15,  "綠燈分數門檻",         minval=5,  maxval=40, group=g_gates, tooltip="Score > 此值 = 綠燈（可做多）")
+d_red_thr      = input.int(-20, "紅燈分數門檻",         minval=-40, maxval=-5, group=g_gates, tooltip="Score < 此值 = 紅燈（可做空）")
+d_stability_min = input.int(40, "穩定度最低 %",         minval=0, maxval=100, group=g_gates, tooltip="< 此值強制黃燈（除非 Stagflation Override）")
+d2_quality_min = input.int(90,  "型態品質最低分（D2）", minval=50, maxval=100, group=g_gates, tooltip="v10 = 90 高門檻")
+d3_vol_mult    = input.float(1.8, "量能爆發倍數（D3）", minval=1.0, maxval=5.0, step=0.1, group=g_gates, tooltip="突破量 ≥ 均量 × 此值")
+obvSmaLen      = input.int(5,   "OBV 均線期數",         minval=3, maxval=20, group=g_gates)
+cooldownBars   = input.int(20,  "冷卻期 K 線（D4）",    minval=5, maxval=100, group=g_gates)
+
+// ─── v10.1: 私人信貸壓力 ───
+g_credit = "═══ 私人信貸壓力 (v10.1) ═══"
+hyCrisisLevel = input.float(4.5, "HY spread CRISIS (%)",   minval=3.0, maxval=8.0, step=0.1, group=g_credit, tooltip="超過此值 → 強制紅燈（信用危機，類比 stagflation override）")
+hyWarnLevel   = input.float(3.5, "HY spread WARNING (%)",  minval=2.0, maxval=6.0, step=0.1, group=g_credit, tooltip="超過此值 → credit_adj -3 分")
+hyElevatedLevel = input.float(3.0, "HY spread ELEVATED (%)", minval=1.5, maxval=5.0, step=0.1, group=g_credit, tooltip="超過此值 → credit_adj -1 分")
+hyAcuteJump   = input.float(1.0, "急性跳升閾值 (%/週)",     minval=0.3, maxval=3.0, step=0.1, group=g_credit, tooltip="一週升幅超過此值 → 強制紅燈。hy_spread 是 D 週期，[5] = 5 個交易日 ≈ 一週")
+
+// ─── 出場設定 ───
+g_exit = "═══ 出場 ═══"
+stopAtrMult    = input.float(1.5, "固定停損 × ATR",      minval=0.5, maxval=5.0, step=0.1, group=g_exit, tooltip="固定不移動的保本前停損")
+trailStartAtr  = input.float(1.0, "波段追蹤啟動（× ATR）", minval=0.3, maxval=3.0, step=0.1, group=g_exit, tooltip="浮盈達此值才啟動 23% 追蹤。Gotcha #32")
+trailPullback  = input.float(0.23, "波段拉回觸發 %",      minval=0.10, maxval=0.50, step=0.01, group=g_exit, tooltip="從峰值回撤此 % → 平倉")
+timeStopBars   = input.int(10, "時間止損 K 線",          minval=3, maxval=30, group=g_exit, tooltip="N 根未達 1x ATR 獲利 → 全平")
+useObvExit     = input.bool(true, "OBV 方向翻轉全平",    group=g_exit, tooltip="OBV SMA 方向翻轉 → 全平")
+
+// ─── 型態偵測設定 ───
+g_pivot = "═══ Pivot 設定 ═══"
+pivotLeft   = input.int(5, "左側確認K線", minval=2, maxval=20, group=g_pivot)
+pivotRight  = input.int(3, "右側確認K線", minval=1, maxval=10, group=g_pivot)
+
+g_pat = "═══ 型態偵測 ═══"
+tolerance    = input.float(3.0, "價格容差 %",       minval=0.5, maxval=8.0, step=0.5, group=g_pat)
+volMultiple  = input.float(1.2, "品質量能倍數",     minval=1.0, maxval=3.0, step=0.1, group=g_pat, tooltip="品質因子基準（非 D3）")
+volAvgLen    = input.int(20, "均量期",              minval=5, maxval=50, group=g_pat)
+maxPatBars   = input.int(200, "型態最大跨度(K線)", minval=30, maxval=500, group=g_pat)
+minPatBars   = input.int(5, "型態最小跨度(K線)",    minval=2, maxval=60, group=g_pat)
+minHeightATR = input.float(0.5, "型態最小高度(×ATR)", minval=0.1, maxval=5.0, step=0.1, group=g_pat)
+minRR        = input.float(1.5, "最低 R:R",         minval=1.0, maxval=5.0, step=0.1, group=g_pat)
+
+g_ptns = "═══ 啟用型態 ═══"
+en_dblBot  = input.bool(true, "雙重底 (多) 88%",     group=g_ptns)
+en_invHS   = input.bool(true, "反轉頭肩底 (多) 89%", group=g_ptns)
+en_ascTri  = input.bool(true, "上升三角 (多) 83%",   group=g_ptns)
+en_dblTop  = input.bool(true, "雙重頂 (空) 73%",     group=g_ptns)
+en_hsTop   = input.bool(true, "頭肩頂 (空) 81%",     group=g_ptns)
+en_descTri = input.bool(true, "下降三角 (空) 87%",   group=g_ptns)
+
+// ─── 顯示設定 ───
+g_disp = "═══ 顯示 ═══"
+showTable = input.bool(true, "顯示儀表板", group=g_disp)
+tablePos  = input.string("右上", "儀表板位置", options=["左上","右上","左下","右下"], group=g_disp)
+
+// ─── Webhook（推 Telegram bot 用）───
+g_webhook = "═══ Webhook（推 Telegram bot 用）═══"
+useWebhook = input.bool(true, "啟用 webhook 推送", group=g_webhook)
+pineSecret = input.string("", "Webhook secret", group=g_webhook, tooltip="必填：與 GAS Script Property PINE_ALERT_SECRET 相同的隨機字串", confirm=true)
+
+// ============================================================
+// LAYER 1: 全域計算（ta.* 必須在全域 scope - P3-1）
+// ============================================================
+float avgVol    = ta.sma(volume, volAvgLen)
+float atr14     = ta.atr(14)
+float obv_v     = ta.obv
+float obv_sma   = ta.sma(obv_v, obvSmaLen)
+float obv_sma1  = obv_sma[1]
+bool  obv_up    = not na(obv_sma) and not na(obv_sma1) and obv_sma > obv_sma1
+bool  obv_down  = not na(obv_sma) and not na(obv_sma1) and obv_sma < obv_sma1
+bool  volSpike  = not na(avgVol) and volume >= avgVol * d3_vol_mult
+
+// ============================================================
+// LAYER M: Macro Score v3（方向燈）
+// ============================================================
+
+// ─── request.security × 12（不放 if 裡 - P3-1）───
+// Gotcha #1-2: SP:SPX 可靠，FRED 備援；全部 lookahead_off
+float us10y   = request.security("TVC:US10Y",         "D", close, lookahead=barmerge.lookahead_off)
+float us02y   = request.security("TVC:US02Y",         "D", close, lookahead=barmerge.lookahead_off)
+float us02y_prev = request.security("TVC:US02Y",      "D", close[5], lookahead=barmerge.lookahead_off)
+float breakeven_val = request.security("FRED:T10YIE", "D", close, lookahead=barmerge.lookahead_off)
+float dxy_val = request.security("TVC:DXY",           "D", close, lookahead=barmerge.lookahead_off)
+float oil_val = request.security("TVC:USOIL",         "D", close, lookahead=barmerge.lookahead_off)
+float oil_20d = request.security("TVC:USOIL",         "D", close[20], lookahead=barmerge.lookahead_off)
+float gold_val = request.security("TVC:GOLD",         "D", close, lookahead=barmerge.lookahead_off)
+float copper_val = request.security("COMEX:HG1!",     "D", close, lookahead=barmerge.lookahead_off)
+float copper_20d = request.security("COMEX:HG1!",     "D", close[20], lookahead=barmerge.lookahead_off)
+float vix_val = request.security("CBOE:VIX",          "D", close, lookahead=barmerge.lookahead_off)
+float vix3m_val = request.security("CBOE:VIX3M",      "D", close, lookahead=barmerge.lookahead_off)
+float hy_spread = request.security("FRED:BAMLH0A0HYM2", "D", close, lookahead=barmerge.lookahead_off)
+
+// ─── 工具函數（全域計算值之後 - P3-2）───
+safe_div(float a, float b) =>
+    b != 0 and not na(b) ? a / b : 0.0
+
+roc_pct(float curr, float prev) =>
+    not na(curr) and not na(prev) and prev != 0 ? (curr - prev) / math.abs(prev) * 100 : 0.0
+
+// ─── Macro 派生值 ───
+float yield_curve = us10y - us02y                                   // 10-2 利差
+float us02y_roc   = us02y_prev != 0 ? roc_pct(us02y, us02y_prev) : 0.0  // 2Y 5 日 ROC
+float oil_roc     = roc_pct(oil_val, oil_20d)                       // 油價 20 日 ROC
+// Gotcha #18：銅金比絕對值無意義，只看方向。此處簡化為銅 20 日 ROC（與銅金比 ROC 方向高度相關，省 1 個 request.security）
+float cg_roc      = roc_pct(copper_val, copper_20d)                 // 銅 20 日 ROC
+float real_rate   = us10y - nz(breakeven_val, core_pce_yoy)         // 實質利率
+float erp         = safe_div(100.0, spx_pe_input) - us10y           // 股權風險溢價
+float dxy_z       = safe_div(dxy_val - ta.sma(dxy_val, 252), ta.stdev(dxy_val, 252))
+float vix_term    = safe_div(vix_val, nz(vix3m_val, vix_val))       // VIX 期限結構
+bool  bear_steep  = yield_curve > 0.5 and us02y_roc > 5              // Bear Steepening：長端通膨推高 + 2Y 也漲
+
+// ─── 成長軸（-3 ~ +3）- Gotcha #14 變化率 > 水位 ───
+float g_score = 0.0
+g_score += ism_mfg > 52 ? 0.5 : ism_mfg < 50 ? -0.5 : 0.0
+g_score += ism_new_orders > 52 ? 0.3 : ism_new_orders < 50 ? -0.3 : 0.0
+g_score += ism_new_orders < ism_new_orders_prev ? -0.2 : 0.0       // 方向扣分
+g_score += nfp_k > 150 ? 0.2 : nfp_k < 100 ? -0.5 : 0.0
+g_score += consumer_sentiment > 80 ? 0.3 : consumer_sentiment < 60 ? -0.6 : 0.0
+g_score += cg_roc > 5 ? 0.3 : cg_roc < -5 ? -0.3 : 0.0              // 銅金比 ROC
+g_score += ism_employment > 50 ? 0.3 : ism_employment < 47 ? -0.5 : 0.0
+// 殖利率曲線（Gotcha #9 Bear vs Bull Steepening）
+if yield_curve < -0.2
+    g_score := g_score - 0.6                                        // 倒掛 = 衰退信號
+else if bear_steep
+    g_score := g_score - 0.3                                        // Bear Steepening = 通膨推長端
+else if yield_curve > 0.5
+    g_score := g_score + 0.1                                        // Bull Steepening = 降息預期
+g_score := math.max(-3.0, math.min(3.0, g_score))
+
+// ─── 通膨軸（-3 ~ +3，正值 = 升溫）───
+float i_score = 0.0
+i_score += ism_prices > 65 ? 0.6 : ism_prices < 50 ? -0.3 : 0.0
+i_score += oil_roc > 20 ? 0.7 : oil_roc > 10 ? 0.4 : oil_roc < -20 ? -0.5 : 0.0
+i_score += (not na(breakeven_val) and breakeven_val > 2.5) ? 0.5 : (not na(breakeven_val) and breakeven_val < 1.8) ? -0.3 : 0.0
+i_score += core_pce_yoy > 3.0 ? 0.6 : core_pce_yoy < 2.0 ? -0.3 : 0.0
+i_score += avg_hourly_yoy > 4.0 ? 0.4 : avg_hourly_yoy < 2.5 ? -0.2 : 0.0
+i_score := math.max(-3.0, math.min(3.0, i_score))
+
+// ─── 四季判定（Gotcha #30 門檻 ±0.5）───
+string season = "─"
+color  season_col = color.gray
+if g_score > 0.5 and i_score < 0.5
+    season := "🟢 春 Growth"
+    season_col := color.green
+else if g_score > 0.5 and i_score >= 0.5
+    season := "🟡 夏 Stagflation 警戒"
+    season_col := color.yellow
+else if g_score <= -0.5 and i_score >= 0.5
+    season := "🔴 秋 Stagflation"
+    season_col := color.red
+else if g_score <= -0.5 and i_score < 0.5
+    season := "🔵 冬 Recession"
+    season_col := color.blue
+else
+    season := "🟡 轉換期"
+    season_col := color.gray
+
+// ─── 穩定度（指標一致性：同號 → 高，異號 → 低）───
+// 簡化算法：成長軸 7 個指標中有多少與主導方向同號
+int g_positives = (ism_mfg > 52 ? 1 : 0) + (ism_new_orders > 52 ? 1 : 0) + (nfp_k > 150 ? 1 : 0) +
+                  (consumer_sentiment > 80 ? 1 : 0) + (cg_roc > 5 ? 1 : 0) + (ism_employment > 50 ? 1 : 0) +
+                  (yield_curve > 0 and not bear_steep ? 1 : 0)
+int g_negatives = (ism_mfg < 50 ? 1 : 0) + (ism_new_orders < 50 ? 1 : 0) + (nfp_k < 100 ? 1 : 0) +
+                  (consumer_sentiment < 60 ? 1 : 0) + (cg_roc < -5 ? 1 : 0) + (ism_employment < 47 ? 1 : 0) +
+                  (yield_curve < -0.2 or bear_steep ? 1 : 0)
+int g_dominant = math.max(g_positives, g_negatives)
+int stability_pct = math.round(safe_div(g_dominant * 100.0, 7.0))
+
+// ─── 基礎分數：四季 → 基準 ───
+float base_score = 0.0
+if str.contains(season, "春")
+    base_score := 15.0
+else if str.contains(season, "夏")
+    base_score := 5.0                                               // 夏天謹慎
+else if str.contains(season, "秋")
+    base_score := -15.0                                             // 秋天做空
+else if str.contains(season, "冬")
+    base_score := 10.0                                              // 冬天逆向（Marks COVID 案例）
+// 轉換期 base = 0
+
+// ─── Marks 估值覆蓋 ───
+float val_adj = 0.0
+val_adj -= spx_pe_input > 25 ? (spx_pe_input - 25.0) * 1.0 : 0.0
+val_adj -= tw_pe_input > 22 ? (tw_pe_input - 22.0) * 1.0 : 0.0
+// ERP 負值重扣（Gotcha #29）
+if erp > 3
+    val_adj := val_adj + 6.0
+else if erp > 1
+    val_adj := val_adj + 3.0
+else if erp > 0
+    val_adj := val_adj + 0.0
+else if erp > -1
+    val_adj := val_adj - 4.0
+else
+    val_adj := val_adj - 6.0                                        // ERP < -1 最強做空
+val_adj -= cape_input > 35 ? 3.0 : cape_input > 30 ? 1.0 : 0.0
+
+// ─── v10.1: 私人信貸壓力子模組 ─────────────────────────────
+// 等級判定（取代 v10.0 的 hy>7 / hy>5 二段制）
+string hy_pressure_level = na(hy_spread) ? "N/A" :
+                            hy_spread > hyCrisisLevel    ? "CRISIS" :
+                            hy_spread > hyWarnLevel      ? "WARNING" :
+                            hy_spread > hyElevatedLevel  ? "ELEVATED" :
+                            "NORMAL"
+
+// 一週急性跳升偵測（hy_spread 是 D 週期，[5] = 5 個交易日 ≈ 一週）
+// nz() 包 [5] 索引：FRED 資料延遲 1-2 天，邊界條件下會 na（Gotcha #6 對等處理）
+float hy_5d_ago = nz(hy_spread[5], hy_spread)
+float hy_weekly_jump = na(hy_spread) or na(hy_5d_ago) ? na : hy_spread - hy_5d_ago
+bool  hy_acute_event = not na(hy_weekly_jump) and hy_weekly_jump > hyAcuteJump and not na(hy_spread)
+
+// HY 強制紅燈（類比 stagflation_override；Gotcha #33）
+bool hy_force_red = (hy_pressure_level == "CRISIS") or hy_acute_event
+
+// ─── Marks 信用覆蓋 ───
+float credit_adj = 0.0
+// HY 等級制扣分（v10.1：取代二段制，與 hy_pressure_level 一致）
+credit_adj -= hy_pressure_level == "CRISIS"   ? 5.0 :
+              hy_pressure_level == "WARNING"  ? 3.0 :
+              hy_pressure_level == "ELEVATED" ? 1.0 : 0.0
+credit_adj -= real_rate > 3 ? 3.0 : real_rate > 2 ? 1.0 : 0.0
+credit_adj -= not na(dxy_z) and dxy_z > 1 ? 2.0 : 0.0
+
+// ─── 情緒逆向（Gotcha #28 降權機制）───
+float contrarian = 0.0
+contrarian += vix_val > 30 ? 6.0 : vix_val > 25 ? 3.0 : 0.0
+contrarian += (not na(vix_term) and vix_term > 1.05) ? 4.0 : 0.0    // VIX > VIX3M (倒掛) = 恐慌 → 逆向做多加分
+contrarian += put_call_input > 1.2 ? 5.0 : 0.0
+contrarian += aaii_bears > 45 ? 5.0 : 0.0
+contrarian -= aaii_bulls > 55 ? 3.0 : 0.0                           // 過度樂觀扣分
+// 降權：基礎 + 估值 + 信用 < -30 → 逆向砍半
+float pre_contrarian = base_score + val_adj + credit_adj
+if pre_contrarian < -30
+    contrarian := contrarian * 0.5
+
+float total_score = pre_contrarian + contrarian
+
+// ─── Stagflation Override（Gotcha #27）───
+bool stagflation_override = total_score < -40 and i_score > 1.5
+
+// ─── 燈號判定 ───
+// 優先順序：HY 強制紅燈（v10.1）→ 穩定度強制黃燈 → Stagflation Override → 分數判定
+// HY 強制紅燈優先級高於穩定度，因為信用危機形成期通常 fundamental 還沒崩，
+// stability_pct 高 ≠ 安全
+string light = "🟡 黃燈"
+color  light_col = color.yellow
+string hy_force_reason = hy_acute_event
+     ? "HY 急性 +" + str.tostring(hy_weekly_jump, "#.##") + "%/週"
+     : ("HY 危機 " + (na(hy_spread) ? "N/A" : str.tostring(hy_spread, "#.##")) + "%")
+bool   force_yellow = stability_pct < d_stability_min and not stagflation_override and not hy_force_red
+if hy_force_red
+    light := "🔴 紅燈（" + hy_force_reason + "）"
+    light_col := color.red
+else if force_yellow
+    light := "🟡 強制黃燈（穩定度不足）"
+    light_col := color.yellow
+else if stagflation_override
+    light := "🔴 紅燈（Stagflation Override）"
+    light_col := color.red
+else if total_score > d_green_thr
+    light := "🟢 綠燈"
+    light_col := color.green
+else if total_score < d_red_thr
+    light := "🔴 紅燈"
+    light_col := color.red
+else
+    light := "🟡 黃燈"
+    light_col := color.yellow
+
+bool d1_long_ok  = str.contains(light, "🟢 綠燈")
+bool d1_short_ok = str.contains(light, "🔴 紅燈")
+
+// ============================================================
+// LAYER 2: Zigzag 統一序列（P1-1 修正）
+// ============================================================
+float ph = ta.pivothigh(high, pivotLeft, pivotRight)
+float pl = ta.pivotlow(low, pivotLeft, pivotRight)
+int   phBar = bar_index - pivotRight
+int   plBar = bar_index - pivotRight
+
+var float[] zzP = array.new_float(0)
+var int[]   zzB = array.new_int(0)          // K 線索引（int 而非 float，避免 array.get→int 轉型錯誤）
+var int[]   zzD = array.new_int(0)          // 1=低, -1=高
+
+// 加入新 pivot（合併成交替序列）
+if not na(ph)
+    int sz = array.size(zzD)
+    if sz == 0 or array.get(zzD, 0) != -1
+        array.unshift(zzP, ph)
+        array.unshift(zzB, phBar)
+        array.unshift(zzD, -1)
+    else
+        // 連續兩個高點：保留較高的
+        if ph > array.get(zzP, 0)
+            array.set(zzP, 0, ph)
+            array.set(zzB, 0, phBar)
+if not na(pl)
+    int sz2 = array.size(zzD)
+    if sz2 == 0 or array.get(zzD, 0) != 1
+        array.unshift(zzP, pl)
+        array.unshift(zzB, plBar)
+        array.unshift(zzD, 1)
+    else
+        // 連續兩個低點：保留較低的
+        if pl < array.get(zzP, 0)
+            array.set(zzP, 0, pl)
+            array.set(zzB, 0, plBar)
+
+// 限制序列長度為 20
+while array.size(zzP) > 20
+    array.pop(zzP)
+    array.pop(zzB)
+    array.pop(zzD)
+
+int zzSz = array.size(zzP)
+
+// 找最近的低點/高點索引（P3-5 — size 檢查先行）
+int iLow = -1
+int iHigh = -1
+if zzSz > 0
+    for k = 0 to zzSz - 1
+        if array.get(zzD, k) == 1 and iLow == -1
+            iLow := k
+        if array.get(zzD, k) == -1 and iHigh == -1
+            iHigh := k
+        if iLow >= 0 and iHigh >= 0
+            break
+
+// ============================================================
+// 型態工具函數
+// ============================================================
+isSimilar(float a, float b) =>
+    not na(a) and not na(b) and math.abs(a - b) / math.max(math.abs(a), math.abs(b)) * 100 <= tolerance
+
+isRecent(int pivotBar) =>
+    bar_index - pivotBar <= maxPatBars
+
+qSym(float a, float b) =>
+    float diff = math.abs(a - b) / math.max(math.abs(a), math.abs(b)) * 100
+    math.max(0.0, 1.0 - diff / (tolerance * 1.5))
+
+qDepth(float height) =>
+    math.min(safe_div(height, math.max(atr14, 0.01)), 1.0)
+
+qBreak(float cl, float trigger, bool isBull) =>
+    float dist = isBull ? cl - trigger : trigger - cl
+    math.max(0.0, math.min(safe_div(dist, math.max(atr14 * 0.3, 0.01)), 1.0))
+
+qProx(float cl, float trigger, bool isBull) =>
+    float dist = isBull ? trigger - cl : cl - trigger
+    dist <= 0 ? 1.0 : math.max(0.0, 1.0 - safe_div(dist, math.max(atr14, 0.01)))
+
+qVol() =>
+    not na(avgVol) and avgVol > 0 ? math.min(safe_div(volume, avgVol * volMultiple), 1.0) : 0.0
+
+calcQ(float qs, float qd, float qb, float qv) =>
+    math.round((qs * 0.30 + qd * 0.25 + qb * 0.20 + qv * 0.25) * 100.0)
+
+adjTgt(float entryP, float stopP, float tgtP, bool isBull) =>
+    float risk = math.abs(entryP - stopP)
+    float reward = math.abs(tgtP - entryP)
+    float ratio = safe_div(reward, risk)
+    if ratio < minRR
+        isBull ? entryP + risk * minRR : entryP - risk * minRR
+    else
+        tgtP
+
+// ============================================================
+// LAYER 3: 型態偵測（6 核心型態）
+// ============================================================
+// addR 只收集，不副作用（P3-3）
+var string[] resName  = array.new_string(0)
+var int[]    resTier  = array.new_int(0)
+var string[] resDir   = array.new_string(0)
+var string[] resState = array.new_string(0)
+var float[]  resEntry = array.new_float(0)
+var float[]  resStop  = array.new_float(0)
+var float[]  resTgt   = array.new_float(0)
+var float[]  resQ     = array.new_float(0)
+var int[]    resBWR   = array.new_int(0)
+var float[]  resEWR   = array.new_float(0)
+var int[]    resSpan  = array.new_int(0)
+var float[]  resHt    = array.new_float(0)
+
+addR(string nm, int tier, string dir, string st, float ent, float stp, float tgt, float q, int bwr, int span, float ht) =>
+    array.push(resName, nm)
+    array.push(resTier, tier)
+    array.push(resDir, dir)
+    array.push(resState, st)
+    array.push(resEntry, ent)
+    array.push(resStop, stp)
+    array.push(resTgt, adjTgt(ent, stp, tgt, str.contains(dir, "▲")))
+    array.push(resQ, q)
+    array.push(resBWR, bwr)
+    array.push(resEWR, q * bwr / 100.0)
+    array.push(resSpan, span)
+    array.push(resHt, ht)
+
+// 每根新 K 線清空（每次重新偵測）
+array.clear(resName)
+array.clear(resTier)
+array.clear(resDir)
+array.clear(resState)
+array.clear(resEntry)
+array.clear(resStop)
+array.clear(resTgt)
+array.clear(resQ)
+array.clear(resBWR)
+array.clear(resEWR)
+array.clear(resSpan)
+array.clear(resHt)
+
+// ─── 1. 雙重底（88%）─ 多 ───
+if en_dblBot and iLow >= 0 and iLow + 2 < zzSz
+    int i = iLow
+    float L0 = array.get(zzP, i),     float H0 = array.get(zzP, i+1)
+    float L1 = array.get(zzP, i+2)
+    int   b0 = array.get(zzB, i),  int b2 = array.get(zzB, i+2)
+    if isRecent(b2) and isSimilar(L0, L1) and H0 > L0 and H0 > L1
+        float ht = H0 - math.min(L0, L1)
+        float stp = math.min(L0, L1) - atr14 * 0.5
+        float tgt = H0 + ht
+        int span = b0 - b2
+        bool brk = close > H0
+        float qb = brk ? qBreak(close, H0, true) : qProx(close, H0, true)
+        float q = calcQ(qSym(L0, L1), qDepth(ht), qb, qVol())
+        addR("雙重底", 1, "▲ 做多", brk ? "已突破" : "形成中", H0, stp, tgt, q, 88, span, ht)
+
+// ─── 2. 反轉頭肩底（89%）─ 多 ───
+if en_invHS and iLow >= 0 and iLow + 4 < zzSz
+    int i = iLow
+    float L0 = array.get(zzP, i),     float H0 = array.get(zzP, i+1)
+    float L1 = array.get(zzP, i+2),   float H1 = array.get(zzP, i+3)
+    float L2 = array.get(zzP, i+4)
+    int   b0 = array.get(zzB, i),  int b4 = array.get(zzB, i+4)
+    if isRecent(b4) and L1 < L0 and L1 < L2 and isSimilar(L0, L2)
+        float neck = math.min(H0, H1)
+        float ht = neck - L1
+        float stp = L1 - atr14 * 0.5
+        float tgt = neck + ht
+        int span = b0 - b4
+        bool brk = close > neck
+        float qs = qSym(L0, L2) * 0.5 + math.min(safe_div(math.min(L0, L2) - L1, math.max(atr14, 0.01)), 1.0) * 0.5
+        float qb = brk ? qBreak(close, neck, true) : qProx(close, neck, true)
+        addR("反轉頭肩底", 1, "▲ 做多", brk ? "已突破" : "形成中", neck, stp, tgt, calcQ(qs, qDepth(ht), qb, qVol()), 89, span, ht)
+
+// ─── 3. 上升三角（83%）─ 多 ───
+if en_ascTri and iHigh >= 0 and iHigh + 3 < zzSz
+    int i = iHigh
+    float H0 = array.get(zzP, i),     float L0 = array.get(zzP, i+1)
+    float H1 = array.get(zzP, i+2),   float L1 = array.get(zzP, i+3)
+    int   b0 = array.get(zzB, i),  int b3 = array.get(zzB, i+3)
+    if isRecent(b3) and isSimilar(H0, H1) and L0 > L1 and L0 < H0
+        float resist = math.max(H0, H1)
+        float ht = resist - math.min(L0, L1)
+        float stp = L0 - atr14 * 0.5
+        float tgt = resist + ht
+        int span = b0 - b3
+        bool brk = close > resist
+        float qb = brk ? qBreak(close, resist, true) : qProx(close, resist, true)
+        addR("上升三角", 1, "▲ 做多", brk ? "已突破" : "形成中", resist, stp, tgt, calcQ(qSym(H0, H1), qDepth(ht), qb, qVol()), 83, span, ht)
+
+// ─── 4. 雙重頂（73%）─ 空 ───
+if en_dblTop and iHigh >= 0 and iHigh + 2 < zzSz
+    int i = iHigh
+    float H0 = array.get(zzP, i),     float L0 = array.get(zzP, i+1)
+    float H1 = array.get(zzP, i+2)
+    int   b0 = array.get(zzB, i),  int b2 = array.get(zzB, i+2)
+    if isRecent(b2) and isSimilar(H0, H1) and L0 < H0 and L0 < H1
+        float ht = math.max(H0, H1) - L0
+        float stp = math.max(H0, H1) + atr14 * 0.5
+        float tgt = L0 - ht
+        int span = b0 - b2
+        bool brk = close < L0
+        float qb = brk ? qBreak(close, L0, false) : qProx(close, L0, false)
+        addR("雙重頂", 2, "▼ 做空", brk ? "已突破" : "形成中", L0, stp, tgt, calcQ(qSym(H0, H1), qDepth(ht), qb, qVol()), 73, span, ht)
+
+// ─── 5. 頭肩頂（81%）─ 空 ───
+if en_hsTop and iHigh >= 0 and iHigh + 4 < zzSz
+    int i = iHigh
+    float H0 = array.get(zzP, i),     float L0 = array.get(zzP, i+1)
+    float H1 = array.get(zzP, i+2),   float L1 = array.get(zzP, i+3)
+    float H2 = array.get(zzP, i+4)
+    int   b0 = array.get(zzB, i),  int b4 = array.get(zzB, i+4)
+    if isRecent(b4) and H1 > H0 and H1 > H2 and isSimilar(H0, H2)
+        float neck = math.max(L0, L1)
+        float ht = H1 - neck
+        float stp = H1 + atr14 * 0.5
+        float tgt = neck - ht
+        int span = b0 - b4
+        bool brk = close < neck
+        float qs = qSym(H0, H2) * 0.5 + math.min(safe_div(H1 - math.max(H0, H2), math.max(atr14, 0.01)), 1.0) * 0.5
+        float qb = brk ? qBreak(close, neck, false) : qProx(close, neck, false)
+        addR("頭肩頂", 1, "▼ 做空", brk ? "已突破" : "形成中", neck, stp, tgt, calcQ(qs, qDepth(ht), qb, qVol()), 81, span, ht)
+
+// ─── 6. 下降三角（87%）─ 空 ───
+if en_descTri and iHigh >= 0 and iHigh + 3 < zzSz
+    int i = iHigh
+    float H0 = array.get(zzP, i),     float L0 = array.get(zzP, i+1)
+    float H1 = array.get(zzP, i+2),   float L1 = array.get(zzP, i+3)
+    int   b0 = array.get(zzB, i),  int b3 = array.get(zzB, i+3)
+    if isRecent(b3) and isSimilar(L0, L1) and H0 > H1 and H0 > L0
+        float support = math.min(L0, L1)
+        float ht = H0 - support
+        float stp = H0 + atr14 * 0.5
+        float tgt = support - ht
+        int span = b0 - b3
+        bool brk = close < support
+        float qb = brk ? qBreak(close, support, false) : qProx(close, support, false)
+        addR("下降三角", 1, "▼ 做空", brk ? "已突破" : "形成中", support, stp, tgt, calcQ(qSym(L0, L1), qDepth(ht), qb, qVol()), 87, span, ht)
+
+int rawCount = array.size(resName)
+
+// ============================================================
+// LAYER 4: 後處理（品質過濾 / 跨度 / R:R / 冷卻 / 排序）
+// ============================================================
+
+// ─── 過濾：跨度、高度、R:R（P3-5 安全存取）───
+int idx = array.size(resName) - 1
+while idx >= 0
+    int span = array.get(resSpan, idx)
+    float ht = array.get(resHt, idx)
+    float ent = array.get(resEntry, idx)
+    float stp = array.get(resStop, idx)
+    float tgt = array.get(resTgt, idx)
+    float rr = not na(ent) and not na(stp) and not na(tgt) ? safe_div(math.abs(tgt - ent), math.abs(ent - stp)) : 0.0
+    bool drop = span < minPatBars or ht < atr14 * minHeightATR or rr < 1.0
+    if drop
+        array.remove(resName, idx),  array.remove(resTier, idx)
+        array.remove(resDir, idx),   array.remove(resState, idx)
+        array.remove(resEntry, idx), array.remove(resStop, idx),  array.remove(resTgt, idx)
+        array.remove(resQ, idx),     array.remove(resBWR, idx),   array.remove(resEWR, idx)
+        array.remove(resSpan, idx),  array.remove(resHt, idx)
+    idx := idx - 1
+
+int filtCount = array.size(resName)
+
+// ─── 排序：Tier 升序 + 有效 WR 降序 ───
+int n = array.size(resName)
+if n > 1
+    for i = 0 to n - 2
+        for j = 0 to n - 2 - i
+            float wr1 = array.get(resEWR, j)
+            float wr2 = array.get(resEWR, j+1)
+            int   t1 = array.get(resTier, j)
+            int   t2 = array.get(resTier, j+1)
+            bool swap = t1 > t2 or (t1 == t2 and wr1 < wr2)
+            if swap
+                string ts = array.get(resName, j),  array.set(resName, j, array.get(resName, j+1)),  array.set(resName, j+1, ts)
+                ts := array.get(resDir, j),   array.set(resDir, j, array.get(resDir, j+1)),     array.set(resDir, j+1, ts)
+                ts := array.get(resState, j), array.set(resState, j, array.get(resState, j+1)), array.set(resState, j+1, ts)
+                int ti = array.get(resTier, j),  array.set(resTier, j, array.get(resTier, j+1)),  array.set(resTier, j+1, ti)
+                float tf = array.get(resEntry, j), array.set(resEntry, j, array.get(resEntry, j+1)), array.set(resEntry, j+1, tf)
+                tf := array.get(resStop, j),  array.set(resStop, j, array.get(resStop, j+1)),  array.set(resStop, j+1, tf)
+                tf := array.get(resTgt, j),   array.set(resTgt, j, array.get(resTgt, j+1)),   array.set(resTgt, j+1, tf)
+                tf := array.get(resQ, j),     array.set(resQ, j, array.get(resQ, j+1)),       array.set(resQ, j+1, tf)
+                int bw = array.get(resBWR, j),    array.set(resBWR, j, array.get(resBWR, j+1)),    array.set(resBWR, j+1, bw)
+                tf := array.get(resEWR, j),   array.set(resEWR, j, array.get(resEWR, j+1)),   array.set(resEWR, j+1, tf)
+                int sp = array.get(resSpan, j),   array.set(resSpan, j, array.get(resSpan, j+1)),  array.set(resSpan, j+1, sp)
+                tf := array.get(resHt, j),    array.set(resHt, j, array.get(resHt, j+1)),    array.set(resHt, j+1, tf)
+
+// 只保留前 3 個最強
+while array.size(resName) > 3
+    array.pop(resName),  array.pop(resTier),  array.pop(resDir),  array.pop(resState)
+    array.pop(resEntry), array.pop(resStop),  array.pop(resTgt)
+    array.pop(resQ),     array.pop(resBWR),   array.pop(resEWR)
+    array.pop(resSpan),  array.pop(resHt)
+
+int resultCount = array.size(resName)
+
+// ============================================================
+// LAYER 5: 四門進場 + 波段追蹤出場
+// ============================================================
+
+// ─── 冷卻期追蹤 ───
+var int lastEntryBar = na
+
+// ─── 持倉追蹤變數（波段停利）───
+var float entryPrice = na                   // 進場價
+var int   entryBar   = na                   // 進場 K 線
+var float peakHigh   = na                   // 持倉期間最高價（多單）
+var float troughLow  = na                   // 持倉期間最低價（空單）
+var bool  trailActive = false               // 23% 追蹤是否啟動
+var float entryAtr   = na                   // 進場時 ATR（固定停損參考）
+
+// ─── 頂部型態提取 ───
+string topName = ""
+string topDir = ""
+string topState = ""
+float topQ = 0.0
+bool isBull = false
+bool isBear = false
+
+if resultCount > 0
+    topName := array.get(resName, 0)
+    topDir := array.get(resDir, 0)
+    topState := array.get(resState, 0)
+    topQ := array.get(resQ, 0)
+    isBull := str.contains(topDir, "▲")
+    isBear := str.contains(topDir, "▼")
+
+// ─── 四門判定 ───
+bool d2_long_ok   = topQ >= d2_quality_min and isBull and topState == "已突破"
+bool d2_short_ok  = topQ >= d2_quality_min and isBear and topState == "已突破"
+bool d3_long_ok   = volSpike and obv_up
+bool d3_short_ok  = volSpike and obv_down
+bool cooldownPass = na(lastEntryBar) or (bar_index - lastEntryBar) >= cooldownBars
+
+bool longSignal  = d1_long_ok  and d2_long_ok  and d3_long_ok  and cooldownPass and strategy.position_size == 0
+bool shortSignal = d1_short_ok and d2_short_ok and d3_short_ok and cooldownPass and strategy.position_size == 0
+
+// ─── 進場 ───
+if longSignal
+    string alertMsg = '{"secret":"' + pineSecret + '",' +
+       '"action":"buy",' +
+       '"ticker":"' + syminfo.ticker + '",' +
+       '"timeframe":"' + timeframe.period + '",' +
+       '"price":' + str.tostring(close, "#.##") + ',' +
+       '"pattern":"' + topName + '",' +
+       '"quality":' + str.tostring(topQ, "#") + ',' +
+       '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
+       '"stop":' + str.tostring(close - atr14 * stopAtrMult, "#.##") + ',' +
+       '"trail_start":' + str.tostring(close + atr14 * trailStartAtr, "#.##") + ',' +
+       '"timestamp":"' + str.tostring(time, "#") + '"}'
+    strategy.entry("Long", strategy.long, alert_message=alertMsg, comment=topName + " | Score=" + str.tostring(total_score, "#"))
+    lastEntryBar := bar_index
+    entryPrice := close
+    entryBar := bar_index
+    entryAtr := atr14
+    peakHigh := close
+    troughLow := na
+    trailActive := false
+
+if shortSignal
+    string alertMsg = '{"secret":"' + pineSecret + '",' +
+       '"action":"sell",' +
+       '"ticker":"' + syminfo.ticker + '",' +
+       '"timeframe":"' + timeframe.period + '",' +
+       '"price":' + str.tostring(close, "#.##") + ',' +
+       '"pattern":"' + topName + '",' +
+       '"quality":' + str.tostring(topQ, "#") + ',' +
+       '"macro_score":' + str.tostring(total_score, "#.#") + ',' +
+       '"stop":' + str.tostring(close + atr14 * stopAtrMult, "#.##") + ',' +
+       '"trail_start":' + str.tostring(close - atr14 * trailStartAtr, "#.##") + ',' +
+       '"timestamp":"' + str.tostring(time, "#") + '"}'
+    strategy.entry("Short", strategy.short, alert_message=alertMsg, comment=topName + " | Score=" + str.tostring(total_score, "#"))
+    lastEntryBar := bar_index
+    entryPrice := close
+    entryBar := bar_index
+    entryAtr := atr14
+    troughLow := close
+    peakHigh := na
+    trailActive := false
+
+// ─── 更新持倉期間峰值 ───
+if strategy.position_size > 0 and not na(peakHigh)
+    peakHigh := math.max(peakHigh, high)
+if strategy.position_size < 0 and not na(troughLow)
+    troughLow := math.min(troughLow, low)
+
+// ─── 啟動 23% 追蹤（Gotcha #32：1x ATR 門檻）───
+if strategy.position_size > 0 and not trailActive and not na(entryPrice) and not na(entryAtr)
+    if (peakHigh - entryPrice) >= entryAtr * trailStartAtr
+        trailActive := true
+if strategy.position_size < 0 and not trailActive and not na(entryPrice) and not na(entryAtr)
+    if (entryPrice - troughLow) >= entryAtr * trailStartAtr
+        trailActive := true
+
+// ─── 出場條件 ───
+// 1) 固定停損（1.5x ATR - Gotcha #20 用價格不用 tick）
+float longStop  = not na(entryPrice) and not na(entryAtr) ? entryPrice - entryAtr * stopAtrMult : na
+float shortStop = not na(entryPrice) and not na(entryAtr) ? entryPrice + entryAtr * stopAtrMult : na
+
+if strategy.position_size > 0 and not na(longStop)
+    strategy.exit("Long SL", "Long", stop=longStop, comment_loss="停損 1.5x ATR")
+if strategy.position_size < 0 and not na(shortStop)
+    strategy.exit("Short SL", "Short", stop=shortStop, comment_loss="停損 1.5x ATR")
+
+// 2) 23% 波段拉回（trail 啟動後）
+if strategy.position_size > 0 and trailActive and not na(peakHigh) and not na(entryPrice)
+    float gain = peakHigh - entryPrice
+    float pullback = peakHigh - close
+    if pullback >= gain * trailPullback
+        strategy.close("Long", comment="23% 波段拉回")
+
+if strategy.position_size < 0 and trailActive and not na(troughLow) and not na(entryPrice)
+    float gain = entryPrice - troughLow
+    float pullback = close - troughLow
+    if pullback >= gain * trailPullback
+        strategy.close("Short", comment="23% 波段拉回")
+
+// 3) OBV 方向翻轉
+if useObvExit and strategy.position_size > 0 and obv_down
+    strategy.close("Long", comment="OBV 翻轉")
+if useObvExit and strategy.position_size < 0 and obv_up
+    strategy.close("Short", comment="OBV 翻轉")
+
+// 4) 時間止損：N 根未達 1x ATR
+if strategy.position_size != 0 and not na(entryBar) and not na(entryAtr) and (bar_index - entryBar) >= timeStopBars and not trailActive
+    if strategy.position_size > 0
+        strategy.close("Long", comment="時間止損")
+    else
+        strategy.close("Short", comment="時間止損")
+
+// ─── 持倉結束重置 ───
+if strategy.position_size == 0
+    entryPrice := na
+    entryBar := na
+    peakHigh := na
+    troughLow := na
+    trailActive := false
+    entryAtr := na
+
+// ============================================================
+// LAYER 6: Dashboard
+// ============================================================
+get_tpos(string p) => p == "左上" ? position.top_left : p == "右上" ? position.top_right : p == "左下" ? position.bottom_left : position.bottom_right
+// P4-1：v10.1 實際 ~33 行（含 HY 區塊 3-4 row），宣告 45 留餘量
+var table dash = table.new(get_tpos(tablePos), 5, 45, bgcolor=color.new(#1a1a2e, 0), border_width=1, border_color=color.new(color.gray, 70))
+
+if barstate.islast and showTable
+    int row = 0
+
+    // ═══ 標題 ═══
+    table.cell(dash, 0, row, "  小台宏觀策略 v10.1  ", text_color=color.white, text_size=size.normal, bgcolor=color.new(#16213e, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    // ═══ 策略績效 ═══
+    float winRate = strategy.wintrades + strategy.losstrades > 0 ? strategy.wintrades / (strategy.wintrades + strategy.losstrades) * 100 : 0
+    float profitFactor = strategy.grossloss != 0 ? math.abs(strategy.grossprofit / strategy.grossloss) : 0
+    string perfText = "淨損益:" + str.tostring(strategy.netprofit, "#") + " | 勝率:" + str.tostring(winRate, "#.#") + "% | PF:" + str.tostring(profitFactor, "#.##") + " | 交易:" + str.tostring(strategy.closedtrades)
+    color perfCol = strategy.netprofit >= 0 ? color.green : color.red
+    table.cell(dash, 0, row, perfText, text_color=perfCol, text_size=size.tiny, bgcolor=color.new(#0f3460, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    // ═══ MACRO SCORE 區塊 ═══
+    table.cell(dash, 0, row, " ▎Macro Score v3 ", text_color=#00d2ff, text_size=size.small, bgcolor=color.new(#0f3460, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    table.cell(dash, 0, row, " 方向燈", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, light, text_color=light_col, text_size=size.small)
+    table.merge_cells(dash, 1, row, 4, row)
+    row += 1
+
+    table.cell(dash, 0, row, " 綜合分數", text_color=color.silver, text_size=size.small)
+    color scCol = total_score > d_green_thr ? color.green : total_score < d_red_thr ? color.red : color.yellow
+    table.cell(dash, 1, row, str.tostring(total_score, "#.#") + " / ±100", text_color=scCol, text_size=size.small)
+    table.cell(dash, 2, row, "穩定度", text_color=color.silver, text_size=size.tiny)
+    color stbCol = stability_pct >= d_stability_min ? color.green : color.red
+    table.cell(dash, 3, row, str.tostring(stability_pct) + "%", text_color=stbCol, text_size=size.small)
+    table.cell(dash, 4, row, stagflation_override ? "⚠ 停滯膨脹" : "", text_color=color.red, text_size=size.tiny)
+    row += 1
+
+    table.cell(dash, 0, row, " 四季 / 象限", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, season, text_color=season_col, text_size=size.small)
+    table.cell(dash, 2, row, "成長軸", text_color=color.silver, text_size=size.tiny)
+    color gCol = g_score > 0.5 ? color.green : g_score < -0.5 ? color.red : color.yellow
+    table.cell(dash, 3, row, str.tostring(g_score, "+#.##;-#.##"), text_color=gCol, text_size=size.small)
+    color iCol = i_score > 0.5 ? color.red : i_score < -0.5 ? color.green : color.yellow
+    table.cell(dash, 4, row, "通膨 " + str.tostring(i_score, "+#.##;-#.##"), text_color=iCol, text_size=size.tiny)
+    row += 1
+
+    table.cell(dash, 0, row, "  基礎/估值/信用/逆向", text_color=color.new(color.silver, 30), text_size=size.tiny)
+    table.cell(dash, 1, row, str.tostring(base_score, "+#;-#") + "/" + str.tostring(val_adj, "+#.#;-#.#"), text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 2, row, str.tostring(credit_adj, "+#.#;-#.#") + "/" + str.tostring(contrarian, "+#.#;-#.#"), text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 3, row, "ERP", text_color=color.silver, text_size=size.tiny)
+    color erpCol = erp > 1 ? color.green : erp > 0 ? color.yellow : color.red
+    table.cell(dash, 4, row, str.tostring(erp, "+#.##;-#.##") + "%", text_color=erpCol, text_size=size.tiny)
+    row += 1
+
+    table.cell(dash, 0, row, "  VIX / VIX term", text_color=color.new(color.silver, 30), text_size=size.tiny)
+    string vixStat = vix_val > 30 ? "🔴 恐慌" : vix_val > 25 ? "🟡 緊張" : vix_val > -0.5 ? "─ 正常" : "🟢 自滿"
+    table.cell(dash, 1, row, not na(vix_val) ? str.tostring(vix_val, "#.#") : "N/A", text_color=vix_val > 25 ? color.red : color.silver, text_size=size.tiny)
+    table.cell(dash, 2, row, vixStat, text_color=vix_val > 25 ? color.red : color.silver, text_size=size.tiny)
+    string termStat = vix_term > 1.05 ? "⚠ 倒掛(恐慌)" : vix_term < 0.95 ? "Contango(穩)" : "平坦"
+    table.cell(dash, 3, row, not na(vix_term) ? str.tostring(vix_term, "#.##") : "N/A", text_color=color.silver, text_size=size.tiny)
+    table.cell(dash, 4, row, termStat, text_color=vix_term > 1.05 ? color.red : vix_term < 0.95 ? color.green : color.silver, text_size=size.tiny)
+    row += 1
+
+    // ═══ 私人信貸壓力（v10.1）═══
+    table.cell(dash, 0, row, " ▎私人信貸壓力 (v10.1) ", text_color=#ff6b9d, text_size=size.small, bgcolor=color.new(#3d1a3d, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    color hy_level_color = hy_pressure_level == "CRISIS" ? color.red :
+                           hy_pressure_level == "WARNING" ? color.orange :
+                           hy_pressure_level == "ELEVATED" ? color.yellow :
+                           color.green
+    string hy_interp = hy_pressure_level == "CRISIS" ? "🔴 危機(強制紅燈)" :
+                       hy_pressure_level == "WARNING" ? "🟠 信用壓力" :
+                       hy_pressure_level == "ELEVATED" ? "🟡 偏緊" :
+                       "🟢 正常"
+    table.cell(dash, 0, row, " HY spread", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, na(hy_spread) ? "N/A" : str.tostring(hy_spread, "#.##") + "%", text_color=hy_level_color, text_size=size.small)
+    table.cell(dash, 2, row, hy_pressure_level, text_color=hy_level_color, text_size=size.small)
+    table.cell(dash, 3, row, hy_interp, text_color=hy_level_color, text_size=size.tiny)
+    table.merge_cells(dash, 3, row, 4, row)
+    row += 1
+
+    string hy_jump_str = na(hy_weekly_jump) ? "N/A" :
+                         (hy_weekly_jump > 0 ? "+" : "") + str.tostring(hy_weekly_jump, "#.##") + "%"
+    color hy_jump_color = hy_acute_event ? color.red : (not na(hy_weekly_jump) and hy_weekly_jump > 0.5) ? color.orange : color.silver
+    string hy_jump_interp = hy_acute_event ? "🔴 急性升溫(強制紅燈)" :
+                            (not na(hy_weekly_jump) and hy_weekly_jump > 0.5) ? "🟡 升溫" :
+                            "─ 平穩"
+    table.cell(dash, 0, row, "  ↳ 一週變化", text_color=color.new(color.silver, 30), text_size=size.tiny)
+    table.cell(dash, 1, row, hy_jump_str, text_color=hy_jump_color, text_size=size.tiny)
+    table.cell(dash, 2, row, hy_jump_interp, text_color=hy_jump_color, text_size=size.tiny)
+    table.merge_cells(dash, 2, row, 4, row)
+    row += 1
+
+    // 強制紅燈原因（只在 hy_force_red 時顯示）
+    if hy_force_red
+        table.cell(dash, 0, row, "  ↳ 強制紅燈", text_color=color.new(color.silver, 30), text_size=size.tiny)
+        table.cell(dash, 1, row, hy_force_reason, text_color=color.red, text_size=size.tiny)
+        table.merge_cells(dash, 1, row, 4, row)
+        row += 1
+
+    // ═══ 四門狀態 ═══
+    table.cell(dash, 0, row, " ▎四門進場 ", text_color=#00d2ff, text_size=size.small, bgcolor=color.new(#0f3460, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    string d1txt = d1_long_ok ? "✅ 可做多" : d1_short_ok ? "✅ 可做空" : "❌ 禁止"
+    color d1col = d1_long_ok or d1_short_ok ? color.green : color.red
+    table.cell(dash, 0, row, " D1 方向燈", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, d1txt, text_color=d1col, text_size=size.small)
+    table.merge_cells(dash, 1, row, 4, row)
+    row += 1
+
+    string d2txt = resultCount == 0 ? "❌ 無型態" : topQ >= d2_quality_min ? ("✅ " + topName + " Q=" + str.tostring(topQ, "#")) : ("❌ Q=" + str.tostring(topQ, "#") + "<" + str.tostring(d2_quality_min))
+    color d2col = resultCount > 0 and topQ >= d2_quality_min ? color.green : color.red
+    table.cell(dash, 0, row, " D2 型態品質", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, d2txt, text_color=d2col, text_size=size.small)
+    table.merge_cells(dash, 1, row, 4, row)
+    row += 1
+
+    string d3txt = volSpike and (obv_up or obv_down) ? ("✅ Vol " + str.tostring(safe_div(volume, avgVol), "#.#") + "x / OBV " + (obv_up ? "↑" : "↓")) : "❌ 未達"
+    color d3col = volSpike and (obv_up or obv_down) ? color.green : color.red
+    table.cell(dash, 0, row, " D3 量能+OBV", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, d3txt, text_color=d3col, text_size=size.small)
+    table.merge_cells(dash, 1, row, 4, row)
+    row += 1
+
+    int cooldownRemain = na(lastEntryBar) ? 0 : math.max(0, cooldownBars - (bar_index - lastEntryBar))
+    string d4txt = cooldownPass ? "✅ 無冷卻" : ("⏳ 剩 " + str.tostring(cooldownRemain) + " 根")
+    color d4col = cooldownPass ? color.green : color.yellow
+    table.cell(dash, 0, row, " D4 冷卻期", text_color=color.silver, text_size=size.small)
+    table.cell(dash, 1, row, d4txt, text_color=d4col, text_size=size.small)
+    table.merge_cells(dash, 1, row, 4, row)
+    row += 1
+
+    // ═══ 型態偵測結果 ═══
+    table.cell(dash, 0, row, " ▎型態偵測（前 3）", text_color=#00d2ff, text_size=size.small, bgcolor=color.new(#0f3460, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    if resultCount == 0
+        table.cell(dash, 0, row, " 目前無偵測到型態", text_color=color.gray, text_size=size.small)
+        table.merge_cells(dash, 0, row, 4, row)
+        row += 1
+    else
+        // 欄位標題
+        table.cell(dash, 0, row, " 型態", text_color=color.silver, text_size=size.tiny)
+        table.cell(dash, 1, row, "方向", text_color=color.silver, text_size=size.tiny)
+        table.cell(dash, 2, row, "狀態", text_color=color.silver, text_size=size.tiny)
+        table.cell(dash, 3, row, "品質", text_color=color.silver, text_size=size.tiny)
+        table.cell(dash, 4, row, "進場/停損/目標", text_color=color.silver, text_size=size.tiny)
+        row += 1
+        for i = 0 to resultCount - 1
+            string nm = array.get(resName, i)
+            string dr = array.get(resDir, i)
+            string st = array.get(resState, i)
+            float q = array.get(resQ, i)
+            float ent = array.get(resEntry, i)
+            float stp = array.get(resStop, i)
+            float tgt = array.get(resTgt, i)
+            bool bull = str.contains(dr, "▲")
+            color stCol = st == "已突破" ? (bull ? color.green : color.red) : color.gray
+            color qCol = q >= d2_quality_min ? color.green : q >= 70 ? color.yellow : color.red
+            string priceTxt = not na(ent) ? str.tostring(ent, "#") + "/" + str.tostring(stp, "#") + "/" + str.tostring(tgt, "#") : "─"
+            table.cell(dash, 0, row, " " + nm, text_color=color.white, text_size=size.tiny)
+            table.cell(dash, 1, row, dr, text_color=bull ? color.green : color.red, text_size=size.tiny)
+            table.cell(dash, 2, row, st, text_color=stCol, text_size=size.tiny)
+            table.cell(dash, 3, row, str.tostring(q, "#"), text_color=qCol, text_size=size.tiny)
+            table.cell(dash, 4, row, priceTxt, text_color=color.silver, text_size=size.tiny)
+            row += 1
+
+    // ═══ 持倉狀態 ═══
+    table.cell(dash, 0, row, " ▎持倉 + 波段追蹤 ", text_color=#ffd740, text_size=size.small, bgcolor=color.new(#4a3800, 0))
+    table.merge_cells(dash, 0, row, 4, row)
+    row += 1
+
+    if strategy.position_size == 0
+        table.cell(dash, 0, row, " 無持倉", text_color=color.gray, text_size=size.small)
+        table.merge_cells(dash, 0, row, 4, row)
+        row += 1
+    else
+        string dirTxt = strategy.position_size > 0 ? "🟢 多單 " + str.tostring(strategy.position_size) + " 口" : "🔴 空單 " + str.tostring(-strategy.position_size) + " 口"
+        table.cell(dash, 0, row, " 部位", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, row, dirTxt, text_color=strategy.position_size > 0 ? color.green : color.red, text_size=size.small)
+        table.merge_cells(dash, 1, row, 4, row)
+        row += 1
+
+        float unrealized = strategy.position_size * (close - strategy.position_avg_price)
+        float unrealAtr = not na(entryAtr) and entryAtr > 0 ? math.abs(close - strategy.position_avg_price) / entryAtr : 0.0
+        table.cell(dash, 0, row, " 浮動損益", text_color=color.silver, text_size=size.small)
+        color pnlCol = unrealized > 0 ? color.green : color.red
+        table.cell(dash, 1, row, str.tostring(unrealized, "+#;-#") + " 點", text_color=pnlCol, text_size=size.small)
+        table.cell(dash, 2, row, str.tostring(unrealAtr, "#.##") + "x ATR", text_color=color.silver, text_size=size.tiny)
+        table.merge_cells(dash, 2, row, 4, row)
+        row += 1
+
+        float peakOrTrough = strategy.position_size > 0 ? nz(peakHigh) : nz(troughLow)
+        table.cell(dash, 0, row, " 峰/谷", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, row, str.tostring(peakOrTrough, "#"), text_color=color.silver, text_size=size.small)
+        string trailTxt = trailActive ? "🟢 追蹤中 (23%)" : "⏳ 待啟動 (需 1× ATR)"
+        table.cell(dash, 2, row, trailTxt, text_color=trailActive ? color.green : color.gray, text_size=size.tiny)
+        table.merge_cells(dash, 2, row, 4, row)
+        row += 1
+
+        // 停損價顯示
+        float activeStop = strategy.position_size > 0 ? longStop : shortStop
+        table.cell(dash, 0, row, " 停損", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, row, not na(activeStop) ? str.tostring(activeStop, "#") : "─", text_color=color.red, text_size=size.small)
+        int barsInTrade = not na(entryBar) ? bar_index - entryBar : 0
+        table.cell(dash, 2, row, str.tostring(barsInTrade) + " 根", text_color=color.silver, text_size=size.tiny)
+        table.merge_cells(dash, 2, row, 4, row)
+        row += 1
+
+    // ═══ Debug ═══
+    row += 1
+    string dbg = "ZZ=" + str.tostring(zzSz) + " | 偵測=" + str.tostring(rawCount) + "→過濾=" + str.tostring(filtCount) + "→顯示=" + str.tostring(resultCount) + " | Bars=" + str.tostring(bar_index)
+    table.cell(dash, 0, row, dbg, text_color=color.new(color.yellow, 30), text_size=size.tiny)
+    table.merge_cells(dash, 0, row, 4, row)
+
+// ─── 背景色（方向燈視覺提示）───
+bgcolor(d1_long_ok ? color.new(color.green, 95) : d1_short_ok ? color.new(color.red, 95) : na)
+
+// ─── Alert ───
+// ⚠ Webhook：message 必須只用 {{strategy.order.alert_message}} 才會把進場時拼好的 JSON 完整送到 GAS
+//   不要在 message 前後加文字，否則 GAS 會收到非 JSON 字串而 invalid_json
+alertcondition(longSignal,  title="V10 做多訊號", message="{{strategy.order.alert_message}}")
+alertcondition(shortSignal, title="V10 做空訊號", message="{{strategy.order.alert_message}}")
+
+// ─── v10.1: 私人信貸 alert（純訊號通知，不接 webhook）───
+// 進入信用危機（HY 突破 CRISIS 閾值）
+alertcondition(hy_pressure_level == "CRISIS" and hy_pressure_level[1] != "CRISIS",
+     title="HY 進入信用危機", message="HY spread 突破 CRISIS 閾值，regime 強制紅燈，可能觸發 BDC redemption gates")
+
+// HY 急性跳升（一週 > 100bp）
+alertcondition(hy_acute_event and not hy_acute_event[1],
+     title="HY 急性跳升", message="私人信貸 HY spread 一週急性升溫，regime 強制紅燈")
