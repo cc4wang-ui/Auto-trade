@@ -203,7 +203,8 @@ float hy_spread = request.security("FRED:BAMLH0A0HYM2", "D", close, lookahead=ba
 // ─── v10.2 新增 × 5（不可控變數監控；計數 13 → 18/40）───
 // AMEX:KRE 在某些帳號可能找不到，fallback 用 NYSEARCA:KRE 或 NASDAQ:KRE 手動切換
 float kre_close   = request.security("AMEX:KRE",       "D", close, lookahead=barmerge.lookahead_off)
-float bkx_close   = request.security("CBOE:BKX",       "D", close, lookahead=barmerge.lookahead_off)
+// CBOE:BKX 在 Essential 帳號沒有 → fallback AMEX:KBE（SPDR S&P Bank ETF，與 BKX 相關係數 > 0.95）
+float bkx_close   = request.security("AMEX:KBE",       "D", close, lookahead=barmerge.lookahead_off)
 float fwd5y5y     = request.security("FRED:T5YIFR",    "D", close, lookahead=barmerge.lookahead_off)
 // FRED:WALCL 是週度資料，週期參數必須用 "W"（Gotcha #35）。[4] = 4 週 ≈ 一個月
 float walcl_total = request.security("FRED:WALCL",     "W", close, lookahead=barmerge.lookahead_off)
