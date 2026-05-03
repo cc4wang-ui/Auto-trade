@@ -159,8 +159,9 @@ float dxy_val = request.security("TVC:DXY",           "D", close, lookahead=barm
 float oil_val = request.security("TVC:USOIL",         "D", close, lookahead=barmerge.lookahead_off)
 float oil_20d = request.security("TVC:USOIL",         "D", close[20], lookahead=barmerge.lookahead_off)
 float gold_val = request.security("TVC:GOLD",         "D", close, lookahead=barmerge.lookahead_off)
-float copper_val = request.security("COMEX:HG1!",     "D", close, lookahead=barmerge.lookahead_off)
-float copper_20d = request.security("COMEX:HG1!",     "D", close[20], lookahead=barmerge.lookahead_off)
+// COMEX:HG1! 部分 Essential 帳號沒有期貨連續合約，fallback CAPITALCOM:COPPER（dev-guide #15）
+float copper_val = request.security("CAPITALCOM:COPPER", "D", close, lookahead=barmerge.lookahead_off)
+float copper_20d = request.security("CAPITALCOM:COPPER", "D", close[20], lookahead=barmerge.lookahead_off)
 float vix_val = request.security("CBOE:VIX",          "D", close, lookahead=barmerge.lookahead_off)
 float vix3m_val = request.security("CBOE:VIX3M",      "D", close, lookahead=barmerge.lookahead_off)
 float hy_spread = request.security("FRED:BAMLH0A0HYM2", "D", close, lookahead=barmerge.lookahead_off)
