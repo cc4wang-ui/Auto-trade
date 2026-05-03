@@ -368,9 +368,16 @@ var int[]   zzB = array.new_int(0)          // K 線索引（int 而非 float，
 var int[]   zzD = array.new_int(0)          // 1=低, -1=高
 
 // 加入新 pivot（合併成交替序列）
+// P3-5：Pine `or` 不短路，array.get 不能放在 sz == 0 OR 後面 → 用 nested if + bool flag
 if not na(ph)
     int sz = array.size(zzD)
-    if sz == 0 or array.get(zzD, 0) != -1
+    bool addNewHigh = false
+    if sz == 0
+        addNewHigh := true
+    else
+        if array.get(zzD, 0) != -1
+            addNewHigh := true
+    if addNewHigh
         array.unshift(zzP, ph)
         array.unshift(zzB, phBar)
         array.unshift(zzD, -1)
@@ -381,7 +388,13 @@ if not na(ph)
             array.set(zzB, 0, phBar)
 if not na(pl)
     int sz2 = array.size(zzD)
-    if sz2 == 0 or array.get(zzD, 0) != 1
+    bool addNewLow = false
+    if sz2 == 0
+        addNewLow := true
+    else
+        if array.get(zzD, 0) != 1
+            addNewLow := true
+    if addNewLow
         array.unshift(zzP, pl)
         array.unshift(zzB, plBar)
         array.unshift(zzD, 1)
@@ -399,15 +412,17 @@ while array.size(zzP) > 20
 
 int zzSz = array.size(zzP)
 
-// 找最近的低點/高點索引（P3-5 — size 檢查先行）
+// 找最近的低點/高點索引（P3-5 — size 檢查先行 + cheap check 先評估）
 int iLow = -1
 int iHigh = -1
 if zzSz > 0
     for k = 0 to zzSz - 1
-        if array.get(zzD, k) == 1 and iLow == -1
-            iLow := k
-        if array.get(zzD, k) == -1 and iHigh == -1
-            iHigh := k
+        if iLow == -1
+            if array.get(zzD, k) == 1
+                iLow := k
+        if iHigh == -1
+            if array.get(zzD, k) == -1
+                iHigh := k
         if iLow >= 0 and iHigh >= 0
             break
 
