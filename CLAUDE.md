@@ -79,10 +79,17 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | **Pine v10.1/v10.2 補強** | **@context/v10.1-task-spec.md / @context/v10.2-task-spec.md** |
 | 查 Symbol 對應 | @config.json |
 
-## 當前狀態快照（2026/05）
+## 當前狀態快照（2026/05/03 晚 — 實機 debug 後更新）
 
-- v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，等實機驗證
-- **v10.1 Pine 已產出**（私人信貸壓力 → 強制紅燈），檔案 `strategy_v10_1.pine`，等實機驗證
+- **v10.0 / v10.1 / v10.2 Pine 三檔同步修了 4 類 bug**（PR #12 待 merge）：
+  - 21 個多行 ternary → if/else 改寫（Gotcha #7 / #37）
+  - CBOE:BKX → AMEX:KBE（Gotcha #39）
+  - COMEX:HG1! → CAPITALCOM:COPPER（Gotcha #15）
+  - `array.get` 在 OR/AND 後 → nested if 修正（P3-5 / Gotcha #38）
+- **v10.2 已實機編譯成功**，dashboard 應正常 render（待 Cross 重貼後確認）
+- **dev-guide.md 新增 Gotcha #36-40 + 強制 pre-push checklist**
+- **validate_pine.py 新增 lint：多行 ternary 偵測 / array.get 在 OR-AND 偵測 / CBOE specialty symbol 偵測**
+- **session-2026-05-03-pine-bugfix-postmortem.md** — 完整事故記錄
 - **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → 既有 Telegram bot 推播。配置檔在 `automation/`
 - **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
 - 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC
