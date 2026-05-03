@@ -246,26 +246,9 @@ function handleMacroSnapshot(e) {
       return jsonResp({ ok: false, error: 'future_timestamp' });
     }
 
-    // ─── 第 3 層：Sheet 去重 ───
-    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
-    if (!sheetId) {
-      return jsonResp({ ok: false, error: 'sheet_id_missing' });
-    }
-    const ss = SpreadsheetApp.openById(sheetId);
-    const dedupSheet = ss.getSheetByName('dedup_state');
-    if (!dedupSheet) {
-      throw new Error('dedup_state sheet missing — run setupCheck()');
-    }
-
-    const dateStr = Utilities.formatDate(ts, 'Asia/Taipei', 'yyyy-MM-dd');
-    const sessionKey = `${payload.session || 'unknown'}_${dateStr}`;
-    const lastSession = dedupSheet.getRange('B2').getValue();
-    if (lastSession === sessionKey) {
-      console.warn(`[macro_snapshot] Duplicate session: ${sessionKey}`);
-      return jsonResp({ ok: true, dedup: true });
-    }
-    // ─── 第 4 層：payload completeness（防止空殼推 dashes 出去）───
-    // 必須至少有 analyst_report.headline 或 (light + macro_score + season) 三者其一才算有效
+    // ─── 第 3 層：payload completeness（防止空殼推 dashes 出去）───
+    // 必須在 dedup 之前檢查：空殼若先寫進 dedup 會卡住未來相同 session 的測試
+    // 必須至少有 analyst_report.headline 或 (light + macro_score + season) 三者其一
     const hasAnalyst = payload.analyst_report && payload.analyst_report.headline;
     const hasQuant   = payload.light || payload.macro_score || payload.season;
     if (!hasAnalyst && !hasQuant) {
@@ -284,6 +267,24 @@ function handleMacroSnapshot(e) {
       return jsonResp({ ok: false, error: 'empty_payload', session: sess });
     }
 
+    // ─── 第 4 層：Sheet 去重（payload 有效時才占用 dedup 配額）───
+    const sheetId = PropertiesService.getScriptProperties().getProperty('MACRO_SHEET_ID');
+    if (!sheetId) {
+      return jsonResp({ ok: false, error: 'sheet_id_missing' });
+    }
+    const ss = SpreadsheetApp.openById(sheetId);
+    const dedupSheet = ss.getSheetByName('dedup_state');
+    if (!dedupSheet) {
+      throw new Error('dedup_state sheet missing — run setupCheck()');
+    }
+
+    const dateStr = Utilities.formatDate(ts, 'Asia/Taipei', 'yyyy-MM-dd');
+    const sessionKey = `${payload.session || 'unknown'}_${dateStr}`;
+    const lastSession = dedupSheet.getRange('B2').getValue();
+    if (lastSession === sessionKey) {
+      console.warn(`[macro_snapshot] Duplicate session: ${sessionKey}`);
+      return jsonResp({ ok: true, dedup: true });
+    }
     dedupSheet.getRange('B2').setValue(sessionKey);
     dedupSheet.getRange('C2').setValue(new Date());
 
@@ -1868,21 +1869,33 @@ function testReadV10State() {
 function testEmptyPayload() {
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('ROUTINE_TOKEN');
+  // 用唯一 session 避開既有 dedup 紀錄（例如今天已經被舊版空殼佔用了
+  // manual_test_yyyy-MM-dd 的位子）；同時確保 empty check 在 dedup 之前發生
+  const uniqSession = 'test_empty_' + Date.now();
   const fakeEvent = {
     parameter: { endpoint: 'macro_snapshot' },
     postData: {
       contents: JSON.stringify({
         token: token,
         timestamp: new Date().toISOString(),
-        session: 'manual_test'
+        session: uniqSession
         // 故意 — 沒 light / macro_score / season / analyst_report
       })
     }
   };
   const result = doPost(fakeEvent);
-  console.log('Result:', result.getContent());
-  console.log('預期：{"ok":false,"error":"empty_payload",...}');
+  const body = result.getContent();
+  console.log('Result:', body);
+  console.log('預期：{"ok":false,"error":"empty_payload","session":"' + uniqSession + '"}');
   console.log('Telegram 應收到：⚠ 收到空 payload 警告');
+  if (body.indexOf('empty_payload') >= 0) {
+    console.log('✅ Empty-payload guard 工作正常');
+  } else if (body.indexOf('dedup') >= 0) {
+    console.log('❌ 被 dedup 攔下 — 表示部署的 GAS 還是舊順序（應先 empty check 再 dedup）。');
+    console.log('   → 重新貼一次 macro_snapshot_handler.gs 並 Save，再跑這個函數');
+  } else {
+    console.log('❌ 非預期回應，貼 Result 給 Claude debug');
+  }
 }
 
 /**
