@@ -71,17 +71,24 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | 先行指標 | @docs/module-leading.md |
 | 寫新 Pine 指標 | @docs/pine-patterns.md + @docs/data-sources.md |
 | 討論市場狀況 | @context/market-context.md |
+| **每次對話開頭：不可控變數掃描** | **@context/uncontrollable-monitor.md** |
+| **避險決策（Layer 1-3）** | **@context/hedge-decision-tree.md** |
+| **Warsh 5/15 上任後監控** | **@context/warsh-failure-analysis.md → @context/uncontrollable-monitor.md** |
+| **財報追蹤（持倉 / 已出清股）** | **@context/earnings-tracking.md** |
+| **私人信貸危機判讀** | **@context/private-credit-watch.md**（深度）/ @context/private-credit-explainer.md（科普）|
+| **Pine v10.1/v10.2 補強** | **@context/v10.1-task-spec.md / @context/v10.2-task-spec.md** |
 | 查 Symbol 對應 | @config.json |
 
-## 當前狀態快照（2026/04）
+## 當前狀態快照（2026/05）
 
 - v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，等實機驗證
+- **v10.1 Pine 已產出**（私人信貸壓力 → 強制紅燈），檔案 `strategy_v10_1.pine`，等實機驗證
 - **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → 既有 Telegram bot 推播。配置檔在 `automation/`
 - **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
-- 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC（4/21 新建能源對沖）
-- 1810 小米 -43%，採 D+ 分批止損（先 1,100 股近日，剩 1,100 股等 5/27 Q1 財報）
+- 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC
+- **1810 小米 已於 4/29-30 全出清**（成本 54.88，分兩批 31.20 / 30.00 出，總損益 -NT$207K）
 - 自動化 pipeline：TradingView Essential webhook → TradersPost → IB（Cross 入金中）
-- 完整快照：@context/portfolio-2026-04-24.md
+- 完整快照：@context/portfolio-2026-04-29.md（前一版 04-24 保留為歷史）
 
 ## 💬 互動風格
 
