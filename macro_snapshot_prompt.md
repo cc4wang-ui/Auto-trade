@@ -55,6 +55,14 @@ else:
 
 GAS 端 `payload.session` 看到 `manual_test` 會用「快照」標題（不是「台股盤前」/「美股盤前」），訊息仍會推。
 
+### ⚠ Bug 5：manual_test 不能跳過數據撈取
+
+不論 session 是 `tw_pre_open` / `us_pre_open` / `manual_test`，**Steps 1-5 全部必跑**，payload 必須帶完整 `light` / `macro_score` / `season` / `key_indicators` / `v10_gates` / `analyst_report`。
+
+GAS 端從 v1.3 開始**會 reject 空殼 payload**（只有 token+timestamp+session 沒數據的 stub），回 `{ok: false, error: 'empty_payload'}` 並推一條 ⚠ 警告到 Telegram。
+
+→ manual_test 是「在非排程時間觸發但仍要產出完整報告」的情境，不是「跳過數據」的開關。如果你（model）真的不該推（例如數據源全掛）→ 回應 Routine logs 說明，但**不要送空殼 POST**。
+
 ---
 
 ## Step 1：拉成長軸數據（每月初最新）

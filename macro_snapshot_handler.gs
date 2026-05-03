@@ -264,6 +264,26 @@ function handleMacroSnapshot(e) {
       console.warn(`[macro_snapshot] Duplicate session: ${sessionKey}`);
       return jsonResp({ ok: true, dedup: true });
     }
+    // ─── 第 4 層：payload completeness（防止空殼推 dashes 出去）───
+    // 必須至少有 analyst_report.headline 或 (light + macro_score + season) 三者其一才算有效
+    const hasAnalyst = payload.analyst_report && payload.analyst_report.headline;
+    const hasQuant   = payload.light || payload.macro_score || payload.season;
+    if (!hasAnalyst && !hasQuant) {
+      console.warn('[macro_snapshot] Empty payload — no analyst_report and no quant fields');
+      const sess = String(payload.session || 'unknown');
+      const warnMsg =
+        `⚠ <b>收到空 payload</b>\n` +
+        `Session: <code>${escapeHtml(sess)}</code>\n` +
+        `Timestamp: <code>${escapeHtml(String(payload.timestamp))}</code>\n` +
+        `\n可能原因：\n` +
+        `• Routine ▶ Run Now 在非排程視窗觸發，Claude 跳過了數據撈取\n` +
+        `• Routine prompt 沒部署完整（Phase 3 未完成）\n` +
+        `• 手動 curl 測試只送 auth 欄位\n` +
+        `\n動作：開 Anthropic Routine logs 看最近一次 Run 的內容`;
+      try { sendTelegramHtml(warnMsg); } catch (_) {}
+      return jsonResp({ ok: false, error: 'empty_payload', session: sess });
+    }
+
     dedupSheet.getRange('B2').setValue(sessionKey);
     dedupSheet.getRange('C2').setValue(new Date());
 
