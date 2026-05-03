@@ -7,6 +7,10 @@ description: Compose investment-bank-analyst-grade daily macro reports for Cross
 
 > 把量化算分結果（Macro Score v3）翻譯成「**投行賣方分析師早報**」風格的 Telegram 推播。
 > 讀者是 Cross：要結論、要動作、要時間框架，**不要**再給一份指標數值表。
+>
+> ⚠ **同步來源**：本檔內容已 inline 進 `macro_snapshot_prompt.md` 的 Step 5.5（Anthropic Cloud Routine
+> 沒有檔案系統，無法直接讀本檔）。**修改規範時必須兩邊同步**，或乾脆只留 prompt 那份、刪掉本檔。
+> 本檔只給本機 Claude Code session 引用用。
 
 ---
 
