@@ -59,6 +59,28 @@
 25. **財務分析必須按順序** — ① 搜即時股價 → ② 搜財報數據 → ③ 算 PE → ④ 跑篩選 → ⑤ 建表。跳過任何步驟就會出錯。尤其不可「覺得自己知道」就跳過步驟①。越熟悉的股票越容易犯錯。
 26. **交叉驗證** — 每個數字都要 sanity check。PE × EPS 應 ≈ 股價。可買股數 × 股價 應 ≈ 預算。不一致代表某個輸入有誤。
 
+### Telegram bot 部署陷阱（2026/5/3 新增 — WF2-5 上線血淚）
+
+27. **🔴 GAS Web App 部署「Who has access」必須 = `Anyone`（完全匿名）** — 任何「Anyone with Google account」/「Only myself」/「Domain」設定都會讓外部 POST 被 302 redirect 到 Google login URL，Anthropic Routine / curl / Pine alert 全部送不到。失敗症狀：Routine logs 看到 "POST 被 302 redirect 到需要 Google Cookie 的 URL"。修法：Deploy → Manage deployments → Edit → Who has access: **Anyone** → New version。URL 不會變。
+
+28. **🔴 Anthropic Cloud Routine 沒檔案系統** — Routine prompt 不能寫「讀 `.claude/skills/.../SKILL.md`」這種跨檔引用，雲端執行環境讀不到本機 repo 檔案。失敗症狀：Routine 自診斷出「SKILL.md 不存在」但 silently 繼續產出半成品。修法：把所有規範 inline 進 prompt 本體（macro_snapshot_prompt.md Step 5.5 就是範例）。
+
+29. **`manual_test` session 不能解讀為「跳過數據撈取」** — Routine prompt Step 0 把非排程觸發標 `manual_test`，model 容易解讀成「只是測試不用真的撈」直接送空殼 payload。失敗症狀：Telegram 收到全 dashes 訊息。修法：prompt 必須明文「不論 session 為何，Steps 1-5 全部必跑」（Bug 5）。
+
+30. **🔴 GAS endpoint 必須有 payload completeness check（4th-layer guard）** — 只有 token / timestamp / dedup 三層不夠。空殼 payload 過了三層 → silent 渲染一堆 dashes 推到使用者面前。修法：在 dedup **之前**加第 4 層 — 檢查 `analyst_report.headline` 或 `light/macro_score/season` 至少一者存在，否則 reject 並推 ⚠ 警告。
+
+31. **空殼 payload guard 必須在 dedup 之前** — 若 guard 放 dedup 後面，空殼 payload 已經占用了當天 dedup 配額（如 `manual_test_2026-05-03`），同一 session 後續 POST 永遠被 dedup 攔下，guard 永遠跑不到。順序：lock → token → timestamp → **payload-completeness** → dedup → render。
+
+32. **Test 函數的 session 必須唯一** — `testEmptyPayload` 用固定 session `manual_test` 會撞到歷史空殼留下的 dedup → 永遠跑不到 guard。改用 `'test_empty_' + Date.now()` 確保每次唯一。
+
+33. **舊版/legacy renderer 應該 section-conditional 不應死板填 dashes** — partial payload 若強制填 `'—'` 看起來像 bug。每段獨立檢查 `hasAny(obj, keys)`，整段缺資料就跳過該段（不要印標題）。
+
+34. **Telegram bot token 401 → 先用 GAS 隔離測試** — 收到 401 不能立刻假設 token 死了，可能只是某一端 secret 過期。先在 Apps Script 跑 `testMacroSnapshotAnalyst()`，如果 GAS 推 Telegram 成功 → token 對 GAS 是好的，問題在 Routine 端 secret。GAS 失敗才是 token 真的需要重發（BotFather → Revoke + Renew）。
+
+35. **GAS 自診斷函數是必備** — 部署一次 1000+ 行的檔案，paste truncation / Script Properties 缺 / sheet 沒建 / 函數沒定義都會 silent 失敗。寫一個 `dryRunDoctor()` 把 Script Properties / 必要 sheets / 命名函數可達性 / 4-layer guard 是否存在全 check 一次，部署完先跑這個再跑 testXxx。
+
+36. **Pine v5 短路評估與 array.get 致命組合（P3-5 重申）** — `if sz == 0 or array.get(zzD, 0) != -1` Pine 不保證短路評估，TradingView 在 Add to chart 時可能重 evaluate from bar 0 → 觸發 `array.get out of bounds`。改 nested if 配 guard bool 模式。歷史踩過：strategy_v10.pine 修補在 commit `a12d6b9`。
+
 ## 溝通原則
 
 ### 做

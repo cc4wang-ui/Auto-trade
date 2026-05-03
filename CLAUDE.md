@@ -74,15 +74,31 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | 討論市場狀況 | @context/market-context.md |
 | 查 Symbol 對應 | @config.json |
 
-## 當前狀態快照（2026/04）
+## 當前狀態快照（2026/05/03）
 
-- v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，等實機驗證
-- **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → 既有 Telegram bot 推播。配置檔在 `automation/`
-- **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
+### Trading
+- v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，已 Add to chart（P3-5 array bounds 修補在 commit `a12d6b9`）
 - 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC（4/21 新建能源對沖）
 - 1810 小米 -43%，採 D+ 分批止損（先 1,100 股近日，剩 1,100 股等 5/27 Q1 財報）
 - 自動化 pipeline：TradingView Essential webhook → TradersPost → IB（Cross 入金中）
 - 完整快照：@context/portfolio-2026-04-24.md
+
+### Bot pipeline（WF2-5 全部上線）
+- ✅ **每日 Macro 推播**：Anthropic Cloud Routine（cron 08:30 / 21:00 TW）→ POST GAS Web App → Telegram。Routine prompt 在 `macro_snapshot_prompt.md`（Step 5.5 已 inline 完整 SKILL.md）
+- ✅ **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram（含 R:R + regime）
+- ✅ **v10 state snapshot**：Pine 每 bar close 推 D2/D3 → GAS upsert → Routine 自動拉，不用手動進 TV
+- ✅ **Earnings summary**：含 call_highlights + analyst Q&A
+- ✅ **GAS 4-layer guard**：lock / token / timestamp / **payload-completeness** / dedup（`b924483`）
+- ✅ **自診斷工具**：`dryRunDoctor()` + `testEmptyPayload()`
+
+### 部署狀態（5/3 晚踩坑後）
+- ✅ GAS code 端：所有 fix 都 push，PR #6 上的最新 commit
+- ✅ Anthropic Routine prompt 端：SKILL.md 已 inline，不再依賴檔案系統
+- ⚠ **未驗證**：Telegram bot token 是否有效（Routine 自診斷說 401）
+- 待明早 08:30 cron 自動觸發驗證，第一次完整 IB 報告應該會收到
+
+### 已知 Telegram bot 部署陷阱（必讀）
+@dev-guide.md #27-36（GAS Anyone 權限 / Routine 沒檔案系統 / payload guard 順序 / token 401 隔離測試 …）
 
 ## 💬 互動風格
 
