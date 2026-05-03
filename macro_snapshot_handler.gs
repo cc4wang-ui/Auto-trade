@@ -1328,104 +1328,131 @@ function formatLegacyMacroMessage(p) {
 
   const time = Utilities.formatDate(new Date(p.timestamp), 'Asia/Taipei', 'MM/dd HH:mm');
 
-  // 安全存取 nested fields
-  const light  = p.light || {};
-  const score  = p.macro_score || {};
-  const season = p.season || {};
-  const indi   = p.key_indicators || {};
-  const gates  = p.v10_gates || {};
-  const action = p.actionable || {};
-  const dq     = p.data_quality || {};
+  // 安全存取 nested fields（保留 null 才能跳過整個區段）
+  const light  = p.light || null;
+  const score  = p.macro_score || null;
+  const season = p.season || null;
+  const indi   = p.key_indicators || null;
+  const gates  = p.v10_gates || null;
+  const action = p.actionable || null;
+  const dq     = p.data_quality || null;
+
+  function hasAny(obj, keys) {
+    if (!obj) return false;
+    return keys.some(k => obj[k] !== undefined && obj[k] !== null && obj[k] !== '');
+  }
 
   let msg = `<b>${sessionLabel} ${time}</b>\n`;
   msg += `━━━━━━━━━━━━━━━━━━\n`;
 
-  // ─── 燈號 + 分數（force_yellow 不重複顯示燈號）───
-  if (light.force_yellow) {
-    msg += `⚠ <b>強制黃燈</b>（穩定度 ${fmt(light.stability_pct, 0)}%，偏低）\n`;
-    msg += `Score=<code>${fmt(score.total, 1)}</code>\n`;
-  } else if (light.stagflation_override) {
-    msg += `🚨 <b>${escapeHtml(String(light.label || '🔴 紅燈'))}</b>（Stagflation Override）\n`;
-    msg += `Score=<code>${fmt(score.total, 1)}</code>\n`;
-  } else {
-    msg += `<b>${escapeHtml(String(light.label || '🟡 黃燈'))}</b>  Score=<code>${fmt(score.total, 1)}</code>\n`;
-  }
-  msg += `\n`;
-
-  // ─── 四季 ───
-  msg += `<b>季節</b>: ${escapeHtml(String(season.name || '—'))}\n`;
-  msg += `成長軸 <code>${fmt(season.g_score)}</code>  通膨軸 <code>${fmt(season.i_score)}</code>\n\n`;
-
-  // ─── 分數構成 ───
-  msg += `<b>分數構成</b>\n`;
-  msg += `基礎 <code>${fmt(score.base)}</code>`;
-  msg += ` / 估值 <code>${fmt(score.val_adj)}</code>`;
-  msg += ` / 信用 <code>${fmt(score.credit_adj)}</code>`;
-  msg += ` / 逆向 <code>${fmt(score.contrarian)}</code>\n\n`;
-
-  // ─── 關鍵指標 ───
-  msg += `<b>關鍵指標</b>\n`;
-  msg += `VIX <code>${fmt(indi.vix)}</code>`;
-  if (indi.vix_term !== undefined && indi.vix_term !== null) {
-    msg += `  期限 <code>${fmt(indi.vix_term)}</code>`;
-    if (indi.vix_term > 1.05) msg += `⚠倒掛`;
-  }
-  msg += `\n`;
-
-  if (indi.erp !== undefined && indi.erp !== null) {
-    msg += `ERP <code>${fmt(indi.erp)}%</code>`;
-    if (indi.erp < 0) msg += `⚠負值`;
-  }
-  if (indi.real_rate !== undefined && indi.real_rate !== null) {
-    msg += `  實質利率 <code>${fmt(indi.real_rate)}%</code>`;
-  }
-  msg += `\n`;
-
-  if (indi.yield_curve !== undefined && indi.yield_curve !== null) {
-    msg += `殖利率曲線 <code>${fmt(indi.yield_curve)}</code>`;
-    if (indi.bear_steepening) msg += `⚠Bear Steep`;
+  // ─── 燈號 + 分數（任一存在才印）───
+  if (light || score) {
+    const l = light || {};
+    const s = score || {};
+    if (l.force_yellow) {
+      msg += `⚠ <b>強制黃燈</b>（穩定度 ${fmt(l.stability_pct, 0)}%，偏低）\n`;
+      msg += `Score=<code>${fmt(s.total, 1)}</code>\n`;
+    } else if (l.stagflation_override) {
+      msg += `🚨 <b>${escapeHtml(String(l.label || '🔴 紅燈'))}</b>（Stagflation Override）\n`;
+      msg += `Score=<code>${fmt(s.total, 1)}</code>\n`;
+    } else {
+      msg += `<b>${escapeHtml(String(l.label || '🟡 黃燈'))}</b>  Score=<code>${fmt(s.total, 1)}</code>\n`;
+    }
     msg += `\n`;
   }
 
-  if (indi.oil_roc_20d !== undefined || indi.hy_spread !== undefined) {
-    if (indi.oil_roc_20d !== undefined) msg += `油 ROC <code>${fmt(indi.oil_roc_20d)}%</code>  `;
-    if (indi.hy_spread !== undefined) msg += `HY <code>${fmt(indi.hy_spread)}%</code>`;
+  // ─── 四季（任一軸有值才印）───
+  if (hasAny(season, ['name', 'g_score', 'i_score'])) {
+    msg += `<b>季節</b>: ${escapeHtml(String(season.name || '—'))}\n`;
+    msg += `成長軸 <code>${fmt(season.g_score)}</code>  通膨軸 <code>${fmt(season.i_score)}</code>\n\n`;
+  }
+
+  // ─── 分數構成（任一構成項有值才印）───
+  if (hasAny(score, ['base', 'val_adj', 'credit_adj', 'contrarian'])) {
+    msg += `<b>分數構成</b>\n`;
+    msg += `基礎 <code>${fmt(score.base)}</code>`;
+    msg += ` / 估值 <code>${fmt(score.val_adj)}</code>`;
+    msg += ` / 信用 <code>${fmt(score.credit_adj)}</code>`;
+    msg += ` / 逆向 <code>${fmt(score.contrarian)}</code>\n\n`;
+  }
+
+  // ─── 關鍵指標（任一指標有值才印整段）───
+  const indiKeys = ['vix', 'vix_term', 'erp', 'real_rate', 'yield_curve', 'oil_roc_20d', 'hy_spread'];
+  if (hasAny(indi, indiKeys)) {
+    msg += `<b>關鍵指標</b>\n`;
+    if (indi.vix !== undefined && indi.vix !== null) {
+      msg += `VIX <code>${fmt(indi.vix)}</code>`;
+      if (indi.vix_term !== undefined && indi.vix_term !== null) {
+        msg += `  期限 <code>${fmt(indi.vix_term)}</code>`;
+        if (indi.vix_term > 1.05) msg += `⚠倒掛`;
+      }
+      msg += `\n`;
+    }
+    const erpLine = [];
+    if (indi.erp !== undefined && indi.erp !== null) {
+      let s = `ERP <code>${fmt(indi.erp)}%</code>`;
+      if (indi.erp < 0) s += `⚠負值`;
+      erpLine.push(s);
+    }
+    if (indi.real_rate !== undefined && indi.real_rate !== null) {
+      erpLine.push(`實質利率 <code>${fmt(indi.real_rate)}%</code>`);
+    }
+    if (erpLine.length > 0) msg += erpLine.join('  ') + `\n`;
+
+    if (indi.yield_curve !== undefined && indi.yield_curve !== null) {
+      msg += `殖利率曲線 <code>${fmt(indi.yield_curve)}</code>`;
+      if (indi.bear_steepening) msg += `⚠Bear Steep`;
+      msg += `\n`;
+    }
+    const oilHy = [];
+    if (indi.oil_roc_20d !== undefined && indi.oil_roc_20d !== null) {
+      oilHy.push(`油 ROC <code>${fmt(indi.oil_roc_20d)}%</code>`);
+    }
+    if (indi.hy_spread !== undefined && indi.hy_spread !== null) {
+      oilHy.push(`HY <code>${fmt(indi.hy_spread)}%</code>`);
+    }
+    if (oilHy.length > 0) msg += oilHy.join('  ') + `\n`;
     msg += `\n`;
   }
-  msg += `\n`;
 
-  // ─── v10 四門 ───
-  msg += `<b>v10 四門</b>\n`;
-  msg += `D1 方向 ${gateIcon(gates.d1_direction)}  D4 冷卻 ${gateIcon(gates.d4_cooldown)}\n`;
-  if (gates.needs_tradingview_check) {
-    msg += `D2 型態 / D3 量能 → 📊 開 TradingView 看\n`;
-  } else {
-    if (gates.d2_pattern_quality !== undefined && gates.d2_pattern_quality !== null) {
-      msg += `D2 型態 Q=${fmt(gates.d2_pattern_quality, 0)} ${gates.d2_pass ? '✅' : '❌'}\n`;
+  // ─── v10 四門（任一門有值才印）───
+  if (hasAny(gates, ['d1_direction', 'd2_pattern_quality', 'd3_volume_obv', 'd4_cooldown', 'needs_tradingview_check'])) {
+    const g = gates;
+    msg += `<b>v10 四門</b>\n`;
+    const d1 = g.d1_direction ? gateIcon(g.d1_direction) : '—';
+    const d4 = g.d4_cooldown ? gateIcon(g.d4_cooldown) : '—';
+    msg += `D1 方向 ${d1}  D4 冷卻 ${d4}\n`;
+    if (g.needs_tradingview_check) {
+      msg += `D2 型態 / D3 量能 → 📊 開 TradingView 看\n`;
+    } else {
+      if (g.d2_pattern_quality !== undefined && g.d2_pattern_quality !== null) {
+        msg += `D2 型態 Q=${fmt(g.d2_pattern_quality, 0)} ${g.d2_pass ? '✅' : '❌'}\n`;
+      }
+      if (g.d3_volume_obv) {
+        msg += `D3 OBV ${escapeHtml(String(g.d3_volume_obv))} ${obvIcon(g.d3_volume_obv, g.d3_pass)}\n`;
+      }
     }
-    if (gates.d3_volume_obv) {
-      msg += `D3 OBV ${escapeHtml(String(gates.d3_volume_obv))} ${obvIcon(gates.d3_volume_obv, gates.d3_pass)}\n`;
-    }
+    msg += `\n`;
   }
-  msg += `\n`;
 
   // ─── 行動建議 ───
-  if (action.recommended_action) {
-    msg += `<b>行動</b>: ${escapeHtml(String(action.recommended_action))}\n`;
-  }
-  if (action.summary) {
-    msg += `${escapeHtml(String(action.summary))}\n`;
-  }
-
-  if (action.key_risks && Array.isArray(action.key_risks) && action.key_risks.length > 0) {
-    msg += `\n<b>風險</b>:\n`;
-    action.key_risks.forEach(r => {
-      msg += `• ${escapeHtml(String(r))}\n`;
-    });
+  if (action) {
+    if (action.recommended_action) {
+      msg += `<b>行動</b>: ${escapeHtml(String(action.recommended_action))}\n`;
+    }
+    if (action.summary) {
+      msg += `${escapeHtml(String(action.summary))}\n`;
+    }
+    if (Array.isArray(action.key_risks) && action.key_risks.length > 0) {
+      msg += `\n<b>風險</b>:\n`;
+      action.key_risks.forEach(r => {
+        msg += `• ${escapeHtml(String(r))}\n`;
+      });
+    }
   }
 
   // ─── 數據品質警告 ───
-  if (dq.warnings && Array.isArray(dq.warnings) && dq.warnings.length > 0) {
+  if (dq && Array.isArray(dq.warnings) && dq.warnings.length > 0) {
     msg += `\n⚠ <i>數據警告</i>: ${escapeHtml(dq.warnings.join(', '))}`;
   }
 
@@ -1831,6 +1858,86 @@ function testReadV10State() {
   };
   const result = doPost(fakeEvent);
   console.log('Result:', result.getContent());
+}
+
+/**
+ * 模擬空殼 payload — 應該被新加的 4th-layer guard 擋下並推一條警告
+ * 預期回傳：{"ok":false,"error":"empty_payload","session":"manual_test"}
+ * 預期 Telegram：⚠ 收到空 payload + 排查清單
+ */
+function testEmptyPayload() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('ROUTINE_TOKEN');
+  const fakeEvent = {
+    parameter: { endpoint: 'macro_snapshot' },
+    postData: {
+      contents: JSON.stringify({
+        token: token,
+        timestamp: new Date().toISOString(),
+        session: 'manual_test'
+        // 故意 — 沒 light / macro_score / season / analyst_report
+      })
+    }
+  };
+  const result = doPost(fakeEvent);
+  console.log('Result:', result.getContent());
+  console.log('預期：{"ok":false,"error":"empty_payload",...}');
+  console.log('Telegram 應收到：⚠ 收到空 payload 警告');
+}
+
+/**
+ * 部署健檢 — 一鍵診斷整個 macro snapshot pipeline 是否工作
+ * 在 Apps Script 編輯器選 dryRunDoctor → Run，看 console 報告
+ */
+function dryRunDoctor() {
+  const lines = [];
+  const props = PropertiesService.getScriptProperties();
+  const checks = {
+    'ROUTINE_TOKEN':     !!props.getProperty('ROUTINE_TOKEN'),
+    'PINE_ALERT_SECRET': !!props.getProperty('PINE_ALERT_SECRET'),
+    'TELEGRAM_BOT_TOKEN':!!props.getProperty('TELEGRAM_BOT_TOKEN'),
+    'TELEGRAM_CHAT_ID':  !!props.getProperty('TELEGRAM_CHAT_ID'),
+    'MACRO_SHEET_ID':    !!props.getProperty('MACRO_SHEET_ID')
+  };
+  Object.keys(checks).forEach(k => {
+    lines.push(`${checks[k] ? '✅' : '❌'} Script Property ${k}`);
+  });
+
+  // Sheet check
+  try {
+    const ss = SpreadsheetApp.openById(props.getProperty('MACRO_SHEET_ID'));
+    ['dedup_state', 'macro_log', 'signal_log', 'earnings_watchlist', 'v10_state'].forEach(name => {
+      const sh = ss.getSheetByName(name);
+      lines.push(`${sh ? '✅' : '❌'} Sheet "${name}"`);
+    });
+  } catch (err) {
+    lines.push(`❌ 開不了 spreadsheet: ${err.message}`);
+  }
+
+  // 函數可達性 check（catch ReferenceError if file paste 不完整）
+  const fns = [
+    'handleMacroSnapshot', 'handleV10Signal', 'handleV10State', 'handleReadV10State',
+    'handleEarningsReport', 'handleReadWatchlist',
+    'formatAnalystReport', 'formatLegacyMacroMessage',
+    'sendTelegramHtml', 'fmt', 'escapeHtml', 'gateIcon', 'obvIcon'
+  ];
+  fns.forEach(name => {
+    try {
+      const fn = eval(name);  // jshint ignore:line
+      lines.push(`${typeof fn === 'function' ? '✅' : '❌'} fn ${name}`);
+    } catch (e) {
+      lines.push(`❌ fn ${name} (NOT defined — paste 可能不完整)`);
+    }
+  });
+
+  // 4th-layer empty-payload guard 是否存在
+  const handlerSrc = String(handleMacroSnapshot);
+  lines.push(`${handlerSrc.indexOf('empty_payload') >= 0 ? '✅' : '❌'} empty_payload guard (4th layer)`);
+
+  const report = lines.join('\n');
+  console.log(report);
+  console.log('\n如果有 ❌：對照 README/runbook 修補；全 ✅ 才表示 GAS 端完整。');
+  return report;
 }
 
 /** 測試 escapeHtml 邊界 */
