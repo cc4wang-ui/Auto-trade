@@ -1,5 +1,16 @@
 // ============================================================
-// 小台指宏觀趨勢跟隨策略 v10.2
+// 小台指宏觀趨勢跟隨策略 v10.3
+//
+// v10.3 變更（2026-05-04 — Cross 實機 dashboard 觀察後校準）：
+//   + Fix #1: VIX HALT 加 confluence 條件（VIX/VIX9D + VIX/VIX3M 同時倒掛才算）
+//             vixDeepBackwardThreshold default 1.1 → 1.4
+//             避免 false positive（5/3 觀察：VIX 17.4 + Contango 但 VIX/VIX9D 1.229 觸發 HALT）
+//   + Fix #2: val_adj 加 floor -10
+//             估值是長期狀態（CAPE/PE 高），不應該每天主導 score
+//             避免 score 永遠卡在紅燈（5/3 觀察：score -15.9 全來自 val_adj）
+//   + Fix #3: D2 型態品質門檻 90 → 85
+//             v10.2 觀察：型態 Q=84 已突破被卡，明明是高品質訊號
+//             寧可少做不可錯做 != 完全不做
 //
 // v10.2 變更（2026-05-03）：
 //   + 不可控變數監控子模組（5 新增 request.security：KRE / BKX / T5YIFR / WALCL / VIX9D）
@@ -51,7 +62,7 @@
 //   P4-1 table 行數留足夠餘量
 // ============================================================
 //@version=5
-strategy("小台宏觀策略 v10.2", overlay=true, max_bars_back=500,
+strategy("小台宏觀策略 v10.3", overlay=true, max_bars_back=500,
      initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1,
      commission_type=strategy.commission.cash_per_contract, commission_value=100,
      pyramiding=0, process_orders_on_close=true, calc_on_every_tick=true,
@@ -93,7 +104,7 @@ g_gates = "═══ 四門進場門檻 ═══"
 d_green_thr    = input.int(15,  "綠燈分數門檻",         minval=5,  maxval=40, group=g_gates, tooltip="Score > 此值 = 綠燈（可做多）")
 d_red_thr      = input.int(-20, "紅燈分數門檻",         minval=-40, maxval=-5, group=g_gates, tooltip="Score < 此值 = 紅燈（可做空）")
 d_stability_min = input.int(40, "穩定度最低 %",         minval=0, maxval=100, group=g_gates, tooltip="< 此值強制黃燈（除非 Stagflation Override）")
-d2_quality_min = input.int(90,  "型態品質最低分（D2）", minval=50, maxval=100, group=g_gates, tooltip="v10 = 90 高門檻")
+d2_quality_min = input.int(85,  "型態品質最低分（D2）", minval=50, maxval=100, group=g_gates, tooltip="v10.3 從 90 → 85，避免高品質型態（83-89）被卡")
 d3_vol_mult    = input.float(1.8, "量能爆發倍數（D3）", minval=1.0, maxval=5.0, step=0.1, group=g_gates, tooltip="突破量 ≥ 均量 × 此值")
 obvSmaLen      = input.int(5,   "OBV 均線期數",         minval=3, maxval=20, group=g_gates)
 cooldownBars   = input.int(20,  "冷卻期 K 線（D4）",    minval=5, maxval=100, group=g_gates)
@@ -116,7 +127,7 @@ tipsWarnLevel      = input.float(2.5, "TIPS BE 10Y WARNING (%)", minval=2.0, max
 fwd5y5yCrisisLevel = input.float(3.0, "5Y5Y forward CRISIS (%)", minval=2.0, maxval=5.0, step=0.1, group=g_uncontrol, tooltip="長期通膨預期脫錨閾值")
 // VIX 期限結構
 vixBackwardThreshold     = input.float(1.0,  "VIX/VIX9D 倒掛閾值",  minval=0.9, maxval=1.2, step=0.05, group=g_uncontrol, tooltip="VIX > VIX9D × 此值 = 倒掛 = CRISIS")
-vixDeepBackwardThreshold = input.float(1.1,  "深度倒掛閾值（HALT）", minval=1.0, maxval=1.3, step=0.05, group=g_uncontrol, tooltip="超過此值 → HALT（不交易）")
+vixDeepBackwardThreshold = input.float(1.4,  "深度倒掛閾值（HALT）", minval=1.0, maxval=1.5, step=0.05, group=g_uncontrol, tooltip="v10.3：1.1 → 1.4 避免 false positive。VIX9D 是 9 日波動，常態下 VIX/VIX9D 略 > 1，需配合 VIX/VIX3M 倒掛才算真恐慌")
 // Fed 資產負債表
 walclQTSpeedWarn   = input.float(-0.3, "WALCL 月變化 WARNING (%)", minval=-2.0, maxval=0.0, step=0.1, group=g_uncontrol, tooltip="QT 過快")
 walclQTSpeedCrisis = input.float(-0.7, "WALCL 月變化 CRISIS (%)",  minval=-3.0, maxval=-0.3, step=0.1, group=g_uncontrol)
@@ -316,6 +327,8 @@ else if erp > -1
 else
     val_adj := val_adj - 6.0                                        // ERP < -1 最強做空
 val_adj -= cape_input > 35 ? 3.0 : cape_input > 30 ? 1.0 : 0.0
+// v10.3：估值是長期狀態，加 floor -10 避免每天主導 score（避免 score 永遠卡在紅燈）
+val_adj := math.max(val_adj, -10.0)
 
 // ─── v10.1: 私人信貸壓力子模組 ─────────────────────────────
 // 等級判定（取代 v10.0 的 hy>7 / hy>5 二段制）
@@ -374,10 +387,13 @@ bool  tips_acute_jump  = not na(tips_weekly_jump) and tips_weekly_jump > 0.15
 
 // 3. VIX 期限結構（VIX / VIX9D；> 1.0 = 倒掛，> 1.1 = HALT）
 float vix_term_ratio = na(vix9d_close) or vix9d_close == 0 ? na : vix_val / vix9d_close
+// v10.3：HALT 需 VIX/VIX9D + VIX/VIX3M 雙重確認，避免 false positive
+// VIX9D 是 9 日波動，常態下 VIX/VIX9D 可能 > 1.1（不是恐慌訊號）
+// 真恐慌 = 短期 + 中期同時倒掛
 string vix_term_level = "NORMAL"
 if na(vix_term_ratio)
     vix_term_level := "N/A"
-else if vix_term_ratio >= vixDeepBackwardThreshold
+else if vix_term_ratio >= vixDeepBackwardThreshold and not na(vix_term) and vix_term >= 1.05
     vix_term_level := "HALT"
 else if vix_term_ratio >= vixBackwardThreshold
     vix_term_level := "CRISIS"
@@ -1013,7 +1029,7 @@ if barstate.islast and showTable
     int row = 0
 
     // ═══ 標題 ═══
-    table.cell(dash, 0, row, "  小台宏觀策略 v10.2  ", text_color=color.white, text_size=size.normal, bgcolor=color.new(#16213e, 0))
+    table.cell(dash, 0, row, "  小台宏觀策略 v10.3  ", text_color=color.white, text_size=size.normal, bgcolor=color.new(#16213e, 0))
     table.merge_cells(dash, 0, row, 4, row)
     row += 1
 
