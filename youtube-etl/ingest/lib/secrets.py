@@ -10,7 +10,7 @@ Two auth modes (selected by Config.auth_mode):
 from functools import lru_cache
 
 from google.auth.transport.requests import Request
-from google.cloud import secret_manager
+from google.cloud import secretmanager
 from google.oauth2.credentials import Credentials
 
 from lib.config import Config
@@ -24,7 +24,7 @@ YOUTUBE_SCOPES = [
 
 @lru_cache(maxsize=8)
 def _read_secret(project_id: str, name: str) -> str:
-    client = secret_manager.SecretManagerServiceClient()
+    client = secretmanager.SecretManagerServiceClient()
     path = f"projects/{project_id}/secrets/{name}/versions/latest"
     return client.access_secret_version(name=path).payload.data.decode("utf-8")
 
