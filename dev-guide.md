@@ -104,6 +104,18 @@
 
 37. **seed SQL 末尾通常已有 sanity SELECT — 不要再加自己的** — `dim_talent_load.sql` 最後就 SELECT manager_name + talent_count + graduated_count，已經夠用。多寫 verify query 只會多一個出錯點（column 名打錯、加 reservation propagation 失敗風險）。**規則：先讀完整個 seed SQL 再決定要不要加 verify**。
 
+38. **GCP API 都是 lazy enable，新 project 第一次碰每個 service 都會炸 `SERVICE_DISABLED`** — 實測：Secret Manager API 沒開，`gcloud secrets create` 直接噴 403。錯誤訊息指引去 Console 開，但其實 `gcloud services enable <api>.googleapis.com` 一條 CLI 就解決。**規則**：每碰一個新 GCP service（Secret Manager / Cloud Run / Cloud Build / Scheduler / Artifact Registry / IAM）前先 `gcloud services enable`。或 STEP 1 一次 batch 啟用：
+    ```bash
+    gcloud services enable \
+      secretmanager.googleapis.com run.googleapis.com cloudbuild.googleapis.com \
+      cloudscheduler.googleapis.com artifactregistry.googleapis.com iam.googleapis.com \
+      --project=$PROJECT_ID
+    ```
+
+39. **bash `\` 換行在 Cloud Shell paste 時會被吃掉** — 從 markdown code fence copy 多行指令（用 `\` 連接）貼進 Cloud Shell，**有時反斜線後面的換行會被當成獨立命令**，導致 `--data-file=-` 噴 `command not found`。實測踩過 1 次（`gcloud secrets create` paste 時）。**規則：給 Cross 的指令一律寫單行**，不用 `\` 換行。多參數就一行寫到底，可讀性差但不會炸。
+
+40. **YouTube channel ownership 分散 ≠ pipeline 死局** — 50 個 talent 頻道分散在多個 Google 帳號這件事，handoff README 假設「single shared OAuth refresh token」會誤導。**正確拆解**：(a) Data API（公開資料：subs / views / 影片 / liveStreamingDetails / search.list live）用**單一 API key** 即可，不分 ownership；(b) 只有 Analytics API（watch time / retention / demographics）需要 OAuth 且 token 持有人要是該 channel 的 Owner/Manager。**規則**：先用 API key 跑 Data API（80% dashboard 可以動），Analytics API 走「統一 mikai admin 帳號加為 Manager」的商務路徑（IT + talent manager 配合），不要假設一把 token 解決全部。
+
 ## 溝通原則
 
 ### 做
