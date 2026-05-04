@@ -126,6 +126,23 @@
 
 45. **Cloud Run 部署在企業 GCP org 預設可能 ingress=internal** — 17LIVE / mikai 等大型 org 常設 `constraints/run.allowedIngress` org policy，新 service 預設 `internal-and-cloud-load-balancing`，從 Cloud Shell（VPC 外）打會被擋在邊緣回 404。**規則**：給 Cross 的 `gcloud run deploy` 指令**第一次就明確加 `--ingress=all`**，不要等部署完才用 `services update` 修，因為 update 也可能被 org policy 擋（要找 IT 改 org policy）。如果 org policy 真的不允許 ingress=all，改用 IAP TCP tunnel 或從 VPC-attached compute 測試。
 
+46. **`google.cloud.secret_manager` ❌ vs `secretmanager` ✅** — PyPI 套件名是 `google-cloud-secret-manager`（hyphen），但 Python module import 是 `from google.cloud import secretmanager`（**no underscore**）。原始 handoff repo 寫成 `secret_manager` 直接 ImportError 噴 worker boot 失敗。**規則**：碰任何 `google-cloud-*` 系列套件，**先 `python -c "from google.cloud import X"` 驗 module 名稱**，不要從套件名直接推 module 名（gcloud SDK 慣例不一致）。
+
+47. **BigQuery streaming insert 一次塞 >10MB 噴 413** — `insert_rows_json()` 一次傳 ~50MB（10K rows × ~5KB raw_json） → `Request Entity Too Large`。BQ streaming insertAll 上限是 **10 MB / 50,000 rows / call**。**規則**：streaming insert helper 一律加 `INSERT_CHUNK_SIZE = 500` 切 chunk（500 row × 5KB = 2.5MB request，雙向 buffer）。或改用 `load_table_from_json`（load job 沒大小限制，但有 ~30s startup 延遲，適合 batch ETL）。
+
+48. **handler `finally` block 必須每個 write 獨立 try/except** — 原本：
+    ```python
+    finally:
+        bq.write_videos_snapshots(rows)  # 這裡炸 → 下面 2 個都不跑
+        bq.upsert_poll_state(...)
+        bq.write_quota_log(tracker)      # ← 失去最重要的 quota 觀測
+    ```
+    **規則**：finally 裡每個 write 各自 try/except + log.exception。**`quota_log` 尤其重要必須一定 flush**，不然 partial failure 時不知道 burn 了多少 unit。
+
+49. **Cloud Run `/healthz` GET 被前端攔截不轉 container** — Cloud Run frontend 對 `/healthz` 有特殊處理（health probe？），**外部 GET `/healthz` 直接回 Google 邊緣 404**，即使 Flask app 有定義這個 route。**規則**：smoke test 用 POST `/jobs/analytics`（在 api_key mode 會 no-op 直接回 JSON）當作活性檢查，**不要依賴 GET `/healthz`**。
+
+50. **handler 主迴圈每個 per-channel API call 必須各自接 `HttpError`** — daily 主迴圈裡，`channels.list / playlistItems.list / videos.list` **任一個拋非 quotaExceeded 的 HttpError（4xx/5xx）都會殺整個 endpoint**，但 `finally` block 仍會 flush 累積資料，造成「BQ 有 6798 rows + endpoint 回 500」的詭異狀態。**規則**：每個 API call 各自 `try/except HttpError as e: log.warning(...); continue`，把 channel 級錯誤降級為 skip 而非 abort。同時 response JSON 加 `channels_skipped` 計數讓 ops 看得到失敗率。
+
 ## 溝通原則
 
 ### 做
