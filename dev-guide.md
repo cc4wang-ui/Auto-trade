@@ -116,6 +116,16 @@
 
 40. **YouTube channel ownership 分散 ≠ pipeline 死局** — 50 個 talent 頻道分散在多個 Google 帳號這件事，handoff README 假設「single shared OAuth refresh token」會誤導。**正確拆解**：(a) Data API（公開資料：subs / views / 影片 / liveStreamingDetails / search.list live）用**單一 API key** 即可，不分 ownership；(b) 只有 Analytics API（watch time / retention / demographics）需要 OAuth 且 token 持有人要是該 channel 的 Owner/Manager。**規則**：先用 API key 跑 Data API（80% dashboard 可以動），Analytics API 走「統一 mikai admin 帳號加為 Manager」的商務路徑（IT + talent manager 配合），不要假設一把 token 解決全部。
 
+41. **Cloud Shell paste 會把多個 code fence 黏成一行** — 給 Cross 4 個獨立 fenced block 連續 IAM 指令，他複製貼進 Cloud Shell 時，**第一條結尾跟第二條開頭被連起來**：`--condition=Nonegcloud projects ...`。實測 `--condition=Nonegcloud` 直接被 gcloud 當成不合法 condition value。**規則**：多步指令必須**包成單一 block**（用 `for ROLE in ... do ... done` 一行 inline 跑迴圈，或用 `&&` 連接，避免空行造成 paste 斷裂）。給 non-engineer 使用者尤其要這樣寫。
+
+42. **gcloud IAM binding 必須先確認 SA 存在** — 跳過 `iam service-accounts create` 直接跑 `add-iam-policy-binding` → `INVALID_ARGUMENT: Service account ... does not exist`。**規則**：bind 前一律先 `gcloud iam service-accounts describe <sa-email>`，並在 create 之後 `sleep 5` 等 IAM eventual consistency。**更高層規則**：給 Cross 的部署 script 應該打包成單一 block，而不是把 create-SA 跟 bind-IAM 拆成兩步讓他可能跳過。
+
+43. **`gcloud run deploy` 印出的 Service URL 在 URL 格式轉換期不一定 routable** — 實測：deploy 完印 `youtube-etl-ingest-508645124315.us-central1.run.app` (新 format `<service>-<projectnum>.<region>.run.app`)，但實際 routable 的是 `youtube-etl-ingest-gvxv3xr45a-uc.a.run.app` (舊 format `<service>-<hash>-<regionshort>.a.run.app`)，前者打了回 Google 邊緣 404。**規則**：永遠用 `gcloud run services describe <service> --region=<region> --format='value(status.url)'` 拿真的 URL，**不要相信 deploy stdout 印的那個**。
+
+44. **Cloud Run 404 從 Google 邊緣 ≠ Flask 404** — 看到 HTML 含 Google logo + `*{margin:0;padding:0}` style + `That's an error` → 這是 Google frontend 回的，**請求根本沒進 container**。可能原因：(a) URL 不對（見 #43）；(b) Ingress 設定 `internal` 阻擋外部呼叫；(c) Container crash loop 但 Cloud Run condition 還沒翻紅。**規則**：看到 Google 邊緣 404 不要假設是 auth 問題（auth 失敗回 403 才對）。先 `gcloud run services describe` 拿真實 URL + 檢查 ingress + `gcloud run services logs read` 看 container 有沒有起來。
+
+45. **Cloud Run 部署在企業 GCP org 預設可能 ingress=internal** — 17LIVE / mikai 等大型 org 常設 `constraints/run.allowedIngress` org policy，新 service 預設 `internal-and-cloud-load-balancing`，從 Cloud Shell（VPC 外）打會被擋在邊緣回 404。**規則**：給 Cross 的 `gcloud run deploy` 指令**第一次就明確加 `--ingress=all`**，不要等部署完才用 `services update` 修，因為 update 也可能被 org policy 擋（要找 IT 改 org policy）。如果 org policy 真的不允許 ingress=all，改用 IAP TCP tunnel 或從 VPC-attached compute 測試。
+
 ## 溝通原則
 
 ### 做
