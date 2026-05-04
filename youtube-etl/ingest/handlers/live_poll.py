@@ -8,6 +8,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from googleapiclient.errors import HttpError
+
 from lib.bq_writer import BqWriter
 from lib.config import Config
 from lib.quota_tracker import QuotaTracker
@@ -48,7 +50,11 @@ def run(cfg: Config) -> dict:
     poll_state_upserts: list[dict] = []
     try:
         for chunk in chunked([t["video_id"] for t in targets], 50):
-            items = yt.videos_list(chunk)
+            try:
+                items = yt.videos_list(chunk)
+            except HttpError as e:
+                log.warning("videos.list HttpError live chunk_size=%d: %s", len(chunk), e)
+                continue
             for item in items:
                 row = live_metrics_to_row(item, snapshot_at, run_id)
                 if row is not None:

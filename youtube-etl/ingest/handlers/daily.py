@@ -7,6 +7,8 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from googleapiclient.errors import HttpError
+
 from lib.bq_writer import BqWriter
 from lib.config import Config
 from lib.quota_tracker import QuotaTracker
@@ -38,6 +40,7 @@ def run(cfg: Config) -> dict:
 
     all_video_rows: list[dict] = []
     poll_state_upserts: list[dict] = []
+    skipped_channels = 0
 
     try:
         for ch in channels:
@@ -45,15 +48,35 @@ def run(cfg: Config) -> dict:
             try:
                 uploads = yt.list_channel_uploads_playlist(channel_id)
             except ValueError:
-                log.warning("channel %s missing or removed", channel_id)
+                log.warning("channel %s missing or removed (channels.list returned 0 items)", channel_id)
+                skipped_channels += 1
+                continue
+            except HttpError as e:
+                log.warning("channels.list HttpError for channel=%s: %s", channel_id, e)
+                skipped_channels += 1
                 continue
 
-            video_ids = list(yt.iter_playlist_video_ids(uploads, max_pages=4))
+            try:
+                video_ids = list(yt.iter_playlist_video_ids(uploads, max_pages=4))
+            except HttpError as e:
+                log.warning(
+                    "playlistItems.list HttpError for channel=%s playlist=%s: %s",
+                    channel_id, uploads, e,
+                )
+                skipped_channels += 1
+                continue
             if not video_ids:
                 continue
 
             for chunk in chunked(video_ids, 50):
-                items = yt.videos_list(chunk)
+                try:
+                    items = yt.videos_list(chunk)
+                except HttpError as e:
+                    log.warning(
+                        "videos.list HttpError for channel=%s chunk_size=%d: %s",
+                        channel_id, len(chunk), e,
+                    )
+                    continue
                 for item in items:
                     row = video_to_snapshot_row(item, snapshot_at, "daily", run_id)
                     all_video_rows.append(row)
@@ -78,9 +101,6 @@ def run(cfg: Config) -> dict:
     except QuotaExceededError as e:
         log.error("quota exceeded mid-run after %d units: %s", tracker.total_units(), e)
     finally:
-        # Each write isolated: a failure in one (e.g. videos_snapshot 413) must not
-        # block the others. quota_log especially must always flush so we can audit
-        # how many units were burned even on partial failure.
         try:
             bq.write_videos_snapshots(all_video_rows)
         except Exception:
@@ -98,5 +118,6 @@ def run(cfg: Config) -> dict:
         "run_id": run_id,
         "videos_written": len(all_video_rows),
         "poll_state_updates": len(poll_state_upserts),
+        "channels_skipped": skipped_channels,
         "quota_units": tracker.total_units(),
     }

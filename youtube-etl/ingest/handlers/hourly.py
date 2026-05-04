@@ -7,6 +7,8 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from googleapiclient.errors import HttpError
+
 from lib.bq_writer import BqWriter
 from lib.config import Config
 from lib.quota_tracker import QuotaTracker
@@ -48,7 +50,11 @@ def run(cfg: Config) -> dict:
 
     try:
         for chunk in chunked([t["video_id"] for t in targets], 50):
-            items = yt.videos_list(chunk)
+            try:
+                items = yt.videos_list(chunk)
+            except HttpError as e:
+                log.warning("videos.list HttpError chunk_size=%d: %s", len(chunk), e)
+                continue
             for item in items:
                 video_rows.append(video_to_snapshot_row(item, snapshot_at, "hourly", run_id))
 
@@ -71,7 +77,11 @@ def run(cfg: Config) -> dict:
 
         # Comments — one call per hourly video; allowed because hourly set is small
         for tgt in targets:
-            threads = yt.comment_threads(tgt["video_id"], max_pages=2)
+            try:
+                threads = yt.comment_threads(tgt["video_id"], max_pages=2)
+            except HttpError as e:
+                log.warning("commentThreads.list HttpError video=%s: %s", tgt["video_id"], e)
+                continue
             for th in threads:
                 comment_rows.append(comment_thread_to_row(th, snapshot_at, run_id))
     except QuotaExceededError as e:
