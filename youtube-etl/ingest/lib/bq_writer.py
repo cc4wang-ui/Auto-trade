@@ -9,6 +9,10 @@ from google.cloud import bigquery
 from lib.config import Config
 from lib.quota_tracker import QuotaEvent, QuotaTracker
 
+# Streaming insert chunk size. BigQuery streaming insertAll caps at 10 MB / 50k rows per call.
+# YouTube videos with raw_json average ~5 KB; 500 rows ~= 2.5 MB request, well under both limits.
+INSERT_CHUNK_SIZE = 500
+
 
 class BqWriter:
     def __init__(self, cfg: Config):
@@ -22,9 +26,13 @@ class BqWriter:
         if not rows:
             return
         ref = self._ref(dataset, table)
-        errors = self._client.insert_rows_json(ref, rows)
-        if errors:
-            raise RuntimeError(f"BQ insert errors for {ref}: {errors}")
+        for i in range(0, len(rows), INSERT_CHUNK_SIZE):
+            chunk = rows[i : i + INSERT_CHUNK_SIZE]
+            errors = self._client.insert_rows_json(ref, chunk)
+            if errors:
+                raise RuntimeError(
+                    f"BQ insert errors for {ref} chunk[{i}:{i + len(chunk)}]: {errors}"
+                )
 
     def write_videos_snapshots(self, rows: List[dict]) -> None:
         self.insert(self._cfg.bq_dataset_raw, "videos_snapshot", rows)

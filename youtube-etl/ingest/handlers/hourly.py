@@ -32,7 +32,10 @@ def run(cfg: Config) -> dict:
 
     targets = bq.list_videos_in_mode("hourly")
     if not targets:
-        bq.write_quota_log(tracker)
+        try:
+            bq.write_quota_log(tracker)
+        except Exception:
+            log.exception("write_quota_log failed")
         return {"run_id": run_id, "videos_polled": 0, "quota_units": 0}
     log.info(
         "hourly run %s polling %d videos auth_mode=%s",
@@ -74,10 +77,22 @@ def run(cfg: Config) -> dict:
     except QuotaExceededError as e:
         log.error("quota exceeded mid-run after %d units: %s", tracker.total_units(), e)
     finally:
-        bq.write_videos_snapshots(video_rows)
-        bq.write_comments_snapshots(comment_rows)
-        bq.upsert_poll_state(poll_state_upserts)
-        bq.write_quota_log(tracker)
+        try:
+            bq.write_videos_snapshots(video_rows)
+        except Exception:
+            log.exception("write_videos_snapshots failed (rows=%d)", len(video_rows))
+        try:
+            bq.write_comments_snapshots(comment_rows)
+        except Exception:
+            log.exception("write_comments_snapshots failed (rows=%d)", len(comment_rows))
+        try:
+            bq.upsert_poll_state(poll_state_upserts)
+        except Exception:
+            log.exception("upsert_poll_state failed (rows=%d)", len(poll_state_upserts))
+        try:
+            bq.write_quota_log(tracker)
+        except Exception:
+            log.exception("write_quota_log failed")
 
     return {
         "run_id": run_id,

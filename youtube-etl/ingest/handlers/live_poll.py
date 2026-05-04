@@ -32,7 +32,10 @@ def run(cfg: Config) -> dict:
 
     targets = bq.list_videos_in_mode("hourly", only_live_active=True)
     if not targets:
-        bq.write_quota_log(tracker)
+        try:
+            bq.write_quota_log(tracker)
+        except Exception:
+            log.exception("write_quota_log failed")
         return {"run_id": run_id, "videos_polled": 0}
     if len(targets) > cfg.live_poll_max_videos:
         log.warning(
@@ -66,9 +69,18 @@ def run(cfg: Config) -> dict:
     except QuotaExceededError as e:
         log.error("quota exceeded mid-run after %d units: %s", tracker.total_units(), e)
     finally:
-        bq.write_live_metrics(metrics_rows)
-        bq.upsert_poll_state(poll_state_upserts)
-        bq.write_quota_log(tracker)
+        try:
+            bq.write_live_metrics(metrics_rows)
+        except Exception:
+            log.exception("write_live_metrics failed (rows=%d)", len(metrics_rows))
+        try:
+            bq.upsert_poll_state(poll_state_upserts)
+        except Exception:
+            log.exception("upsert_poll_state failed (rows=%d)", len(poll_state_upserts))
+        try:
+            bq.write_quota_log(tracker)
+        except Exception:
+            log.exception("write_quota_log failed")
 
     return {
         "run_id": run_id,

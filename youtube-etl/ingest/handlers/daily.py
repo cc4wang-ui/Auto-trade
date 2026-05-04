@@ -78,9 +78,21 @@ def run(cfg: Config) -> dict:
     except QuotaExceededError as e:
         log.error("quota exceeded mid-run after %d units: %s", tracker.total_units(), e)
     finally:
-        bq.write_videos_snapshots(all_video_rows)
-        bq.upsert_poll_state(poll_state_upserts)
-        bq.write_quota_log(tracker)
+        # Each write isolated: a failure in one (e.g. videos_snapshot 413) must not
+        # block the others. quota_log especially must always flush so we can audit
+        # how many units were burned even on partial failure.
+        try:
+            bq.write_videos_snapshots(all_video_rows)
+        except Exception:
+            log.exception("write_videos_snapshots failed (rows=%d)", len(all_video_rows))
+        try:
+            bq.upsert_poll_state(poll_state_upserts)
+        except Exception:
+            log.exception("upsert_poll_state failed (rows=%d)", len(poll_state_upserts))
+        try:
+            bq.write_quota_log(tracker)
+        except Exception:
+            log.exception("write_quota_log failed")
 
     return {
         "run_id": run_id,
