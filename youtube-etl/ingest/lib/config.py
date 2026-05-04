@@ -8,6 +8,8 @@ class Config:
     project_id: str
     bq_dataset_raw: str
     bq_dataset_mart: str
+    auth_mode: str
+    secret_api_key: str
     secret_oauth_refresh_token: str
     secret_oauth_client_id: str
     secret_oauth_client_secret: str
@@ -17,10 +19,17 @@ class Config:
 
 
 def load() -> Config:
+    auth_mode = os.environ.get("YOUTUBE_AUTH_MODE", "oauth").lower()
+    if auth_mode not in ("oauth", "api_key"):
+        raise ValueError(
+            f"YOUTUBE_AUTH_MODE must be 'oauth' or 'api_key', got: {auth_mode}"
+        )
     return Config(
         project_id=os.environ["GCP_PROJECT_ID"],
         bq_dataset_raw=os.environ.get("BQ_DATASET_RAW", "youtube_raw"),
         bq_dataset_mart=os.environ.get("BQ_DATASET_MART", "youtube_mart"),
+        auth_mode=auth_mode,
+        secret_api_key=os.environ.get("SECRET_API_KEY", "yt-api-key"),
         secret_oauth_refresh_token=os.environ.get(
             "SECRET_OAUTH_REFRESH_TOKEN", "youtube-etl-mikai-oauth-refresh-token"
         ),

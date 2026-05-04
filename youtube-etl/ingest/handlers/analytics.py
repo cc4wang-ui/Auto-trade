@@ -6,6 +6,9 @@ This is the only path to revenue + uniqueViewers (Data API doesn't expose them).
 YouTube Analytics numbers backfill / adjust for ~7 days after the event date,
 so each run re-fetches the past `analytics_backfill_days` days and MERGE-upserts
 into `analytics_daily`. Idempotent — safe to re-run.
+
+Requires OAuth (auth_mode=oauth). When auth_mode=api_key the handler is a no-op
+because YouTube Analytics API rejects API-key auth.
 """
 import logging
 import uuid
@@ -21,6 +24,13 @@ log = logging.getLogger(__name__)
 
 
 def run(cfg: Config) -> dict:
+    if cfg.auth_mode == "api_key":
+        log.info(
+            "analytics handler skipped: auth_mode=api_key "
+            "(YouTube Analytics API requires OAuth from a channel Owner/Manager)"
+        )
+        return {"skipped": True, "reason": "auth_mode=api_key"}
+
     run_id = f"analytics-{uuid.uuid4().hex[:12]}"
     today_utc = datetime.now(timezone.utc).date()
     backfill_dates: list[date] = [

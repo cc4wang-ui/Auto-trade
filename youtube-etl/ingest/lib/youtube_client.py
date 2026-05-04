@@ -3,8 +3,12 @@
 Every API call goes through this wrapper so quota usage is logged consistently.
 Retries on transient errors via tenacity; raises on quotaExceeded so the caller
 can stop the batch instead of burning through more units.
+
+Supports two auth modes:
+- credentials=  OAuth Credentials (works for both Data API and Analytics API)
+- api_key=      single API key (Data API only; Analytics API rejects it)
 """
-from typing import Iterator, List
+from typing import Iterator, List, Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -24,8 +28,25 @@ class QuotaExceededError(RuntimeError):
 
 
 class YouTubeDataClient:
-    def __init__(self, credentials: Credentials, tracker: QuotaTracker):
-        self._svc = build("youtube", "v3", credentials=credentials, cache_discovery=False)
+    def __init__(
+        self,
+        tracker: QuotaTracker,
+        *,
+        credentials: Optional[Credentials] = None,
+        api_key: Optional[str] = None,
+    ):
+        if (credentials is None) == (api_key is None):
+            raise ValueError(
+                "YouTubeDataClient requires exactly one of credentials= or api_key="
+            )
+        if api_key is not None:
+            self._svc = build(
+                "youtube", "v3", developerKey=api_key, cache_discovery=False
+            )
+        else:
+            self._svc = build(
+                "youtube", "v3", credentials=credentials, cache_discovery=False
+            )
         self._tracker = tracker
 
     @retry(
@@ -120,3 +141,14 @@ class YouTubeDataClient:
             if not page_token:
                 break
         return out
+
+
+def build_data_client(cfg, tracker: QuotaTracker) -> YouTubeDataClient:
+    """Construct YouTubeDataClient with the auth backend selected by cfg.auth_mode."""
+    # Local imports to avoid a circular import: lib.secrets imports lib.config,
+    # the same Config type used by callers of this module.
+    from lib.secrets import load_api_key, load_credentials
+
+    if cfg.auth_mode == "api_key":
+        return YouTubeDataClient(tracker, api_key=load_api_key(cfg))
+    return YouTubeDataClient(tracker, credentials=load_credentials(cfg))

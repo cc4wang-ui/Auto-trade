@@ -11,9 +11,8 @@ from datetime import datetime, timezone
 from lib.bq_writer import BqWriter
 from lib.config import Config
 from lib.quota_tracker import QuotaTracker
-from lib.secrets import load_credentials
 from lib.transforms import live_metrics_to_row
-from lib.youtube_client import QuotaExceededError, YouTubeDataClient
+from lib.youtube_client import QuotaExceededError, build_data_client
 
 log = logging.getLogger(__name__)
 
@@ -29,15 +28,17 @@ def run(cfg: Config) -> dict:
 
     bq = BqWriter(cfg)
     tracker = QuotaTracker(run_id)
-    creds = load_credentials(cfg)
-    yt = YouTubeDataClient(creds, tracker)
+    yt = build_data_client(cfg, tracker)
 
     targets = bq.list_videos_in_mode("hourly", only_live_active=True)
     if not targets:
         bq.write_quota_log(tracker)
         return {"run_id": run_id, "videos_polled": 0}
     if len(targets) > cfg.live_poll_max_videos:
-        log.warning("clamping live poll target list from %d → %d", len(targets), cfg.live_poll_max_videos)
+        log.warning(
+            "clamping live poll target list from %d → %d",
+            len(targets), cfg.live_poll_max_videos,
+        )
         targets = targets[: cfg.live_poll_max_videos]
 
     metrics_rows: list[dict] = []

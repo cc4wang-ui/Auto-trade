@@ -10,9 +10,8 @@ from datetime import datetime, timedelta, timezone
 from lib.bq_writer import BqWriter
 from lib.config import Config
 from lib.quota_tracker import QuotaTracker
-from lib.secrets import load_credentials
 from lib.transforms import video_to_snapshot_row
-from lib.youtube_client import QuotaExceededError, YouTubeDataClient
+from lib.youtube_client import QuotaExceededError, build_data_client
 
 log = logging.getLogger(__name__)
 
@@ -29,11 +28,13 @@ def run(cfg: Config) -> dict:
 
     bq = BqWriter(cfg)
     tracker = QuotaTracker(run_id)
-    creds = load_credentials(cfg)
-    yt = YouTubeDataClient(creds, tracker)
+    yt = build_data_client(cfg, tracker)
 
     channels = bq.list_active_channels()
-    log.info("daily run %s starting; channels=%d", run_id, len(channels))
+    log.info(
+        "daily run %s starting; channels=%d auth_mode=%s",
+        run_id, len(channels), cfg.auth_mode,
+    )
 
     all_video_rows: list[dict] = []
     poll_state_upserts: list[dict] = []
