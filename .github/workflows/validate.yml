@@ -28,7 +28,7 @@ jobs:
           fi
           for f in "${files[@]}"; do
             echo "::group::$f"
-            if ! python3 validate_pine.py "$f"; then
+            if ! python3 scripts/validate_pine.py "$f"; then
               echo "::error file=$f::validate_pine.py reported errors"
               fail=1
             fi
