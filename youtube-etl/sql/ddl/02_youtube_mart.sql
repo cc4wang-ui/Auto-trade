@@ -91,6 +91,38 @@ PARTITION BY month_start_date
 CLUSTER BY source, channel_id, metric_type;
 
 -- =============================================================
+-- mart_content_daily (Phase 2.5)
+-- Per-content (video / livestream) per day, wide format.
+-- Splits videos vs livestreams via content_type so dashboards can filter.
+-- Live-only fields are NULL for content_type='video'.
+-- =============================================================
+CREATE TABLE IF NOT EXISTS `${PROJECT_ID}.youtube_mart.mart_content_daily` (
+  report_date          DATE      NOT NULL,
+  channel_id           STRING    NOT NULL,
+  talent_name          STRING,                  -- denormalized from dim_talent
+  manager_name         STRING,                  -- denormalized
+  video_id             STRING    NOT NULL,
+  title                STRING,
+  published_at         TIMESTAMP,
+  content_type         STRING    NOT NULL,      -- 'video' | 'live_active' | 'live_archive' | 'live_scheduled'
+  duration_seconds     INT64,
+  live_started_at      TIMESTAMP,               -- NULL for content_type='video'
+  live_ended_at        TIMESTAMP,               -- NULL until live ends
+  live_minutes         INT64,                   -- end - start in minutes; NULL for unfinished/non-live
+  view_count           INT64,                   -- cumulative as of snapshot
+  view_count_delta     INT64,                   -- views gained on report_date; NULL on bootstrap day (no prior snapshot)
+  like_count           INT64,                   -- cumulative
+  comment_count        INT64,                   -- cumulative
+  concurrent_peak      INT64,                   -- live-only, MAX(concurrentViewers) over the day's 5-min polls
+  generated_at         TIMESTAMP NOT NULL
+)
+PARTITION BY report_date
+CLUSTER BY channel_id, content_type
+OPTIONS (
+  description = "Per-content per-day fact for Sheets dashboards. content_type splits videos vs livestreams."
+);
+
+-- =============================================================
 -- mart_talent_daily_kpi (denormalized for Connected Sheets)
 -- One row per (channel_id, report_date). Pre-computed KPIs to avoid Sheets-side joins.
 -- =============================================================
