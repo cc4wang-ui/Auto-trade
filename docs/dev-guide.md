@@ -59,6 +59,11 @@
 25. **財務分析必須按順序** — ① 搜即時股價 → ② 搜財報數據 → ③ 算 PE → ④ 跑篩選 → ⑤ 建表。跳過任何步驟就會出錯。尤其不可「覺得自己知道」就跳過步驟①。越熟悉的股票越容易犯錯。
 26. **交叉驗證** — 每個數字都要 sanity check。PE × EPS 應 ≈ 股價。可買股數 × 股價 應 ≈ 預算。不一致代表某個輸入有誤。
 
+### GAS Routine endpoint 陷阱（2026/5/3 新增，從手動 routine run 撞出來）
+27. **`GAS_WEBHOOK_URL` secret 必須含 `?endpoint=macro_snapshot`** — Routine 端的 `GAS_WEBHOOK_URL` 不能只寫 base URL，否則 GAS 不知道要 route 到哪個 handler。完整格式：`https://script.google.com/macros/s/{deployment_id}/exec?endpoint=macro_snapshot`。同理 Pine alert webhook 用 `?endpoint=v10_signal`。
+28. **`curl -L` 撞到 GAS 302 redirect 會回 405，這是假錯誤** — Apps Script Web App 收到 POST 後會回 302 redirect 到 `script.googleusercontent.com`，curl 自動 follow 後變 GET 撞到 405 Method Not Allowed。**Telegram 訊息其實在第一步就送出去了**。看到 405 不要 panic，先去 Telegram 確認。
+29. **Verify GAS response 的正確 curl 寫法** — 不要用 `-L`。改用 two-step：先 POST 看 302 location header，再單獨檢查 `{"ok":true,...}`。或直接看 Apps Script Executions log。`{"ok":true,"dedup":true}` 代表前一次已成功執行（重跑被去重，正常）。
+
 ## 溝通原則
 
 ### 做
