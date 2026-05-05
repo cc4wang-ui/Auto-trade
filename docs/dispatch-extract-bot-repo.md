@@ -13,8 +13,10 @@
 |---|---|---|
 | Telegram bot WF1-4（portfolio / 新聞 / 目標價 / 法說）+ GAS endpoints | `cc4wang-ui/telegram-trade-bot`（已建空 repo）| 5 個 telegram-* / busy-meitner / brave-dirac / update-telegram-bot branches |
 | YouTube ETL（17LIVE / mikai 工作）| `crosswang-collab/mikai-youtube-etl`（已建空 repo）| 3 個 youtube-etl-* branches |
-| **TBD** Playwright jobcan bot | 可能也要搬 `crosswang-collab/`（待 Cross 確認）| 不在本 repo，在 `cc4wang-ui/playwrightbot` |
+| Playwright jobcan bot | `crosswang-collab/mikai-jobcan-bot`（rename）| 不在本 repo，在 `cc4wang-ui/playwrightbot` |
+| Vtuber division 交接清單 | `crosswang-collab/Kirby-transition-plan`（保留名稱）| 不在本 repo，在 `cc4wang-ui/Kirby-transition-plan` |
 | 留下的 = 純 v10 量化交易核心 + macro routine + Pine alert webhook + dashboard | `cc4wang-ui/Auto-trade`（瘦身後）| main + 核心 PR |
+| 不動：個人成長 command center | `cc4wang-ui/combatsystem`（不變）| 個人，不在本次切割範圍 |
 
 ---
 
@@ -159,12 +161,12 @@
 
 ---
 
-## ⚠ 待 Cross 確認
+## Cross 已確認的決策（2026-05-05）
 
-1. **`cc4wang-ui/playwrightbot` (mikai-jobcan-bot) 要不要一起搬到 `crosswang-collab/`？**
-2. **`cc4wang-ui/Kirby-transition-plan` 是什麼？是工作還是個人？**
-3. **`cc4wang-ui/combatsystem` (2026 command center) 是什麼？是工作還是個人？**
-4. **PR #11 `brave-dirac-XkLmB`** — 我需要讀 diff 才能判斷它屬於 macro 還是 bot WF，先暫掛。
+1. ✅ `cc4wang-ui/playwrightbot` → 搬到 `crosswang-collab/mikai-jobcan-bot`（rename）
+2. ✅ `cc4wang-ui/Kirby-transition-plan` → 搬到 `crosswang-collab/Kirby-transition-plan`（Vtuber division 工作交接清單）
+3. ✅ `cc4wang-ui/combatsystem` → 留 `cc4wang-ui/`（個人成長用，不在本次切割）
+4. ✅ PR #11 `brave-dirac-XkLmB` → 抄出 3 條 gotcha 進當前 PR、close PR #11（branch stale + dirty）
 
 ---
 
