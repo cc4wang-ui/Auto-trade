@@ -159,8 +159,9 @@ float dxy_val = request.security("TVC:DXY",           "D", close, lookahead=barm
 float oil_val = request.security("TVC:USOIL",         "D", close, lookahead=barmerge.lookahead_off)
 float oil_20d = request.security("TVC:USOIL",         "D", close[20], lookahead=barmerge.lookahead_off)
 float gold_val = request.security("TVC:GOLD",         "D", close, lookahead=barmerge.lookahead_off)
-float copper_val = request.security("COMEX:HG1!",     "D", close, lookahead=barmerge.lookahead_off)
-float copper_20d = request.security("COMEX:HG1!",     "D", close[20], lookahead=barmerge.lookahead_off)
+// COMEX:HG1! 部分 Essential 帳號沒有期貨連續合約，fallback CAPITALCOM:COPPER（dev-guide #15）
+float copper_val = request.security("CAPITALCOM:COPPER", "D", close, lookahead=barmerge.lookahead_off)
+float copper_20d = request.security("CAPITALCOM:COPPER", "D", close[20], lookahead=barmerge.lookahead_off)
 float vix_val = request.security("CBOE:VIX",          "D", close, lookahead=barmerge.lookahead_off)
 float vix3m_val = request.security("CBOE:VIX3M",      "D", close, lookahead=barmerge.lookahead_off)
 float hy_spread = request.security("FRED:BAMLH0A0HYM2", "D", close, lookahead=barmerge.lookahead_off)
@@ -272,11 +273,16 @@ val_adj -= cape_input > 35 ? 3.0 : cape_input > 30 ? 1.0 : 0.0
 
 // ─── v10.1: 私人信貸壓力子模組 ─────────────────────────────
 // 等級判定（取代 v10.0 的 hy>7 / hy>5 二段制）
-string hy_pressure_level = na(hy_spread) ? "N/A" :
-                            hy_spread > hyCrisisLevel    ? "CRISIS" :
-                            hy_spread > hyWarnLevel      ? "WARNING" :
-                            hy_spread > hyElevatedLevel  ? "ELEVATED" :
-                            "NORMAL"
+// Gotcha #7：Pine v5 不支援多行 ternary，改用 if/else if（v10.0 風格）
+string hy_pressure_level = "NORMAL"
+if na(hy_spread)
+    hy_pressure_level := "N/A"
+else if hy_spread > hyCrisisLevel
+    hy_pressure_level := "CRISIS"
+else if hy_spread > hyWarnLevel
+    hy_pressure_level := "WARNING"
+else if hy_spread > hyElevatedLevel
+    hy_pressure_level := "ELEVATED"
 
 // 一週急性跳升偵測（hy_spread 是 D 週期，[5] = 5 個交易日 ≈ 一週）
 // nz() 包 [5] 索引：FRED 資料延遲 1-2 天，邊界條件下會 na（Gotcha #6 對等處理）
@@ -290,9 +296,12 @@ bool hy_force_red = (hy_pressure_level == "CRISIS") or hy_acute_event
 // ─── Marks 信用覆蓋 ───
 float credit_adj = 0.0
 // HY 等級制扣分（v10.1：取代二段制，與 hy_pressure_level 一致）
-credit_adj -= hy_pressure_level == "CRISIS"   ? 5.0 :
-              hy_pressure_level == "WARNING"  ? 3.0 :
-              hy_pressure_level == "ELEVATED" ? 1.0 : 0.0
+if hy_pressure_level == "CRISIS"
+    credit_adj := credit_adj - 5.0
+else if hy_pressure_level == "WARNING"
+    credit_adj := credit_adj - 3.0
+else if hy_pressure_level == "ELEVATED"
+    credit_adj := credit_adj - 1.0
 credit_adj -= real_rate > 3 ? 3.0 : real_rate > 2 ? 1.0 : 0.0
 credit_adj -= not na(dxy_z) and dxy_z > 1 ? 2.0 : 0.0
 
@@ -319,9 +328,10 @@ bool stagflation_override = total_score < -40 and i_score > 1.5
 // stability_pct 高 ≠ 安全
 string light = "🟡 黃燈"
 color  light_col = color.yellow
-string hy_force_reason = hy_acute_event
-     ? "HY 急性 +" + str.tostring(hy_weekly_jump, "#.##") + "%/週"
-     : ("HY 危機 " + (na(hy_spread) ? "N/A" : str.tostring(hy_spread, "#.##")) + "%")
+string hy_spread_str = na(hy_spread) ? "N/A" : str.tostring(hy_spread, "#.##")
+string hy_force_reason = "HY 危機 " + hy_spread_str + "%"
+if hy_acute_event
+    hy_force_reason := "HY 急性 +" + str.tostring(hy_weekly_jump, "#.##") + "%/週"
 bool   force_yellow = stability_pct < d_stability_min and not stagflation_override and not hy_force_red
 if hy_force_red
     light := "🔴 紅燈（" + hy_force_reason + "）"
@@ -358,9 +368,16 @@ var int[]   zzB = array.new_int(0)          // K 線索引（int 而非 float，
 var int[]   zzD = array.new_int(0)          // 1=低, -1=高
 
 // 加入新 pivot（合併成交替序列）
+// P3-5：Pine `or` 不短路，array.get 不能放在 sz == 0 OR 後面 → 用 nested if + bool flag
 if not na(ph)
     int sz = array.size(zzD)
-    if sz == 0 or array.get(zzD, 0) != -1
+    bool addNewHigh = false
+    if sz == 0
+        addNewHigh := true
+    else
+        if array.get(zzD, 0) != -1
+            addNewHigh := true
+    if addNewHigh
         array.unshift(zzP, ph)
         array.unshift(zzB, phBar)
         array.unshift(zzD, -1)
@@ -371,7 +388,13 @@ if not na(ph)
             array.set(zzB, 0, phBar)
 if not na(pl)
     int sz2 = array.size(zzD)
-    if sz2 == 0 or array.get(zzD, 0) != 1
+    bool addNewLow = false
+    if sz2 == 0
+        addNewLow := true
+    else
+        if array.get(zzD, 0) != 1
+            addNewLow := true
+    if addNewLow
         array.unshift(zzP, pl)
         array.unshift(zzB, plBar)
         array.unshift(zzD, 1)
@@ -389,15 +412,17 @@ while array.size(zzP) > 20
 
 int zzSz = array.size(zzP)
 
-// 找最近的低點/高點索引（P3-5 — size 檢查先行）
+// 找最近的低點/高點索引（P3-5 — size 檢查先行 + cheap check 先評估）
 int iLow = -1
 int iHigh = -1
 if zzSz > 0
     for k = 0 to zzSz - 1
-        if array.get(zzD, k) == 1 and iLow == -1
-            iLow := k
-        if array.get(zzD, k) == -1 and iHigh == -1
-            iHigh := k
+        if iLow == -1
+            if array.get(zzD, k) == 1
+                iLow := k
+        if iHigh == -1
+            if array.get(zzD, k) == -1
+                iHigh := k
         if iLow >= 0 and iHigh >= 0
             break
 
@@ -860,14 +885,20 @@ if barstate.islast and showTable
     table.merge_cells(dash, 0, row, 4, row)
     row += 1
 
-    color hy_level_color = hy_pressure_level == "CRISIS" ? color.red :
-                           hy_pressure_level == "WARNING" ? color.orange :
-                           hy_pressure_level == "ELEVATED" ? color.yellow :
-                           color.green
-    string hy_interp = hy_pressure_level == "CRISIS" ? "🔴 危機(強制紅燈)" :
-                       hy_pressure_level == "WARNING" ? "🟠 信用壓力" :
-                       hy_pressure_level == "ELEVATED" ? "🟡 偏緊" :
-                       "🟢 正常"
+    color hy_level_color = color.green
+    if hy_pressure_level == "CRISIS"
+        hy_level_color := color.red
+    else if hy_pressure_level == "WARNING"
+        hy_level_color := color.orange
+    else if hy_pressure_level == "ELEVATED"
+        hy_level_color := color.yellow
+    string hy_interp = "🟢 正常"
+    if hy_pressure_level == "CRISIS"
+        hy_interp := "🔴 危機(強制紅燈)"
+    else if hy_pressure_level == "WARNING"
+        hy_interp := "🟠 信用壓力"
+    else if hy_pressure_level == "ELEVATED"
+        hy_interp := "🟡 偏緊"
     table.cell(dash, 0, row, " HY spread", text_color=color.silver, text_size=size.small)
     table.cell(dash, 1, row, na(hy_spread) ? "N/A" : str.tostring(hy_spread, "#.##") + "%", text_color=hy_level_color, text_size=size.small)
     table.cell(dash, 2, row, hy_pressure_level, text_color=hy_level_color, text_size=size.small)
@@ -875,12 +906,19 @@ if barstate.islast and showTable
     table.merge_cells(dash, 3, row, 4, row)
     row += 1
 
-    string hy_jump_str = na(hy_weekly_jump) ? "N/A" :
-                         (hy_weekly_jump > 0 ? "+" : "") + str.tostring(hy_weekly_jump, "#.##") + "%"
-    color hy_jump_color = hy_acute_event ? color.red : (not na(hy_weekly_jump) and hy_weekly_jump > 0.5) ? color.orange : color.silver
-    string hy_jump_interp = hy_acute_event ? "🔴 急性升溫(強制紅燈)" :
-                            (not na(hy_weekly_jump) and hy_weekly_jump > 0.5) ? "🟡 升溫" :
-                            "─ 平穩"
+    string hy_jump_str = "N/A"
+    if not na(hy_weekly_jump)
+        hy_jump_str := (hy_weekly_jump > 0 ? "+" : "") + str.tostring(hy_weekly_jump, "#.##") + "%"
+    color hy_jump_color = color.silver
+    if hy_acute_event
+        hy_jump_color := color.red
+    else if not na(hy_weekly_jump) and hy_weekly_jump > 0.5
+        hy_jump_color := color.orange
+    string hy_jump_interp = "─ 平穩"
+    if hy_acute_event
+        hy_jump_interp := "🔴 急性升溫(強制紅燈)"
+    else if not na(hy_weekly_jump) and hy_weekly_jump > 0.5
+        hy_jump_interp := "🟡 升溫"
     table.cell(dash, 0, row, "  ↳ 一週變化", text_color=color.new(color.silver, 30), text_size=size.tiny)
     table.cell(dash, 1, row, hy_jump_str, text_color=hy_jump_color, text_size=size.tiny)
     table.cell(dash, 2, row, hy_jump_interp, text_color=hy_jump_color, text_size=size.tiny)

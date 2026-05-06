@@ -64,6 +64,35 @@
 28. **`curl -L` 撞到 GAS 302 redirect 會回 405，這是假錯誤** — Apps Script Web App 收到 POST 後會回 302 redirect 到 `script.googleusercontent.com`，curl 自動 follow 後變 GET 撞到 405 Method Not Allowed。**Telegram 訊息其實在第一步就送出去了**。看到 405 不要 panic，先去 Telegram 確認。
 29. **Verify GAS response 的正確 curl 寫法** — 不要用 `-L`。改用 two-step：先 POST 看 302 location header，再單獨檢查 `{"ok":true,...}`。或直接看 Apps Script Executions log。`{"ok":true,"dedup":true}` 代表前一次已成功執行（重跑被去重，正常）。
 
+### Pine Script 第二批陷阱（2026/05/03 v10.2 實機 debug 新增）
+36. **🔴 `validate_pine.py` 不是充分條件** — 它通過不代表 TradingView 編譯會通過。實測案例（2026/05/03）：v10.2 `validate_pine.py` 通過，但實機編譯報「Syntax error at input 'end of line without line continuation'」。validator 只檢查純文字 lint（version、lookahead、safe_div、table size），不檢查語法陷阱。**寫完任何 Pine 必須在 TradingView 跑空 chart bar 0/5/50 三個邊界 case 才算驗收完。**
+37. **🔴 多行 ternary 必爆** — 即使縮排對、無空白行，Pine v5 編譯器看到 `? "X" :\n` 跨行就死。Gotcha #7 早就寫過但 v10.1 / v10.2 仍違反 21 處。**永遠用 `if/else if`，從不用多行 ternary**。範例：
+    ```pine
+    // BAD（必爆）
+    string level = condA ? "A" : condB ? "B" : "DEFAULT"
+                                                       // ← 跨行就炸
+
+    // GOOD（v10.0 風格）
+    string level = "DEFAULT"
+    if condA
+        level := "A"
+    else if condB
+        level := "B"
+    ```
+38. **🔴 `array.get` 在 `or`/`and` 後面 → early bar 必炸** — Pine 的 `or`/`and` 不保證 short-circuit。`if sz == 0 or array.get(zzD, 0) != -1` 在 sz==0 時仍會評估 array.get → empty array index 0 out of bounds → 炸。pitfall P3-5 早寫過但 v10.0 base 就違反，從沒被測過早期 bar。**修法**：nested if + bool flag。
+39. **🟡 CBOE specialty index 不在 Essential 帳號** — 實測 invalid：CBOE:BKX、可能也包含 BXY、SKEW 等。**fallback**：BKX → AMEX:KBE（SPDR S&P Bank ETF，相關係數 > 0.95）。CBOE:VIX / VIX3M / VIX9D 在 Essential 是 OK 的。
+40. **🟡 GitHub private repo raw URL 對未登入瀏覽器回 404** — 不是 401/403 而是直接 404，會以為 URL 寫錯。傳 raw URL 給 user 前先確認 (a) repo visibility，(b) user 瀏覽器 GitHub 登入狀態。fallback：(a) 暫時 toggle public 30 秒、(b) chat 直接 dump 程式碼。
+
+### 寫 Pine Script 強制 pre-push checklist（2026/05/03 新增）
+- [ ] **讀過** `docs/pattern-detector-pitfalls.md` 全部 P1-5（不是「以為記得」，是真的打開看一次）
+- [ ] **讀過** `docs/dev-guide.md` 上述 Pine 相關 Gotcha (#1-23 + #27-32 + #36-40)
+- [ ] 任何 `if/and/or` 條件**沒有**包含 `array.get`（用 nested if）
+- [ ] 任何 `string/color = condA ? X : condB ? Y :` **沒有**跨行
+- [ ] 所有 `request.security` symbol 在 Essential 可用（避免 CBOE:BKX 等 specialty）
+- [ ] `scripts/validate_pine.py` 通過
+- [ ] **手動 trace bar 0、bar 5、bar 50 三個邊界 case**（最常被跳的步驟，但最會抓到 P3-5 類 bug）
+- [ ] TradingView 實機編譯 + Add to chart + 看 dashboard render，**沒有任何 Caution/Error popup**
+
 ## 溝通原則
 
 ### 做
