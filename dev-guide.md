@@ -143,6 +143,8 @@
 
 50. **handler 主迴圈每個 per-channel API call 必須各自接 `HttpError`** — daily 主迴圈裡，`channels.list / playlistItems.list / videos.list` **任一個拋非 quotaExceeded 的 HttpError（4xx/5xx）都會殺整個 endpoint**，但 `finally` block 仍會 flush 累積資料，造成「BQ 有 6798 rows + endpoint 回 500」的詭異狀態。**規則**：每個 API call 各自 `try/except HttpError as e: log.warning(...); continue`，把 channel 級錯誤降級為 skip 而非 abort。同時 response JSON 加 `channels_skipped` 計數讓 ops 看得到失敗率。
 
+51. **給 Cross 的 code 一律給完整檔，不給 patch** — Cross 從訊息複製 GAS / Python / SQL patch 進編輯器容易漏行、縮排錯、整合錯誤函式名（特別是 `function buildDashboard()` 結尾要在 `notify(...)` 前加 1 行這種微調），最終讓他自己 debug。**規則**：每次更新給整段檔，他清空整個 file 全貼一次。即使只改 1 行也給完整檔。`learnings.md` 主要原則之一。
+
 ## 溝通原則
 
 ### 做
