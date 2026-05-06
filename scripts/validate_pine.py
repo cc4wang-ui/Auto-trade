@@ -62,6 +62,51 @@ def check_pine(filepath: str) -> list[str]:
         if not has_labels:
             issues.append("⚠️ 儀表板可能只有數字沒有解讀標籤")
 
+    # 8. (NEW 2026/05/03 Gotcha #37) Multi-line ternary detection
+    # Pattern: line ends with `?` or `:` followed by indented continuation
+    lines = code.split('\n')
+    for i, line in enumerate(lines):
+        stripped = line.rstrip()
+        # Skip comment lines
+        if stripped.lstrip().startswith('//'):
+            continue
+        # Line ends with `:` (could be ternary continuation marker)
+        if re.search(r'\?\s*[^?:]+:\s*$', stripped):
+            # Check if next non-empty line is indented continuation (not a new statement)
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines):
+                next_line = lines[j]
+                # Continuation: starts with whitespace and is not a new statement
+                if next_line.startswith(' ') and not re.match(r'\s*(if|else|for|while|switch|var|float|int|string|bool|color|//)\s', next_line):
+                    issues.append(f"🔴 Gotcha #37 多行 ternary @ line {i+1}：Pine v5 不支援，改用 if/else if")
+                    break  # Report once per file
+
+    # 9. (NEW 2026/05/03 Gotcha #38) array.get inside or/and condition
+    # Pattern: `if ... or array.get(...)` or `if ... and array.get(...)` or reversed
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.lstrip().startswith('//'):
+            continue
+        # Match if/while/for ... and/or array.get pattern
+        if re.search(r'\b(if|while)\b.*\b(or|and)\b\s*array\.get\s*\(', stripped) or \
+           re.search(r'\barray\.get\s*\([^)]*\)\s*[!=<>]+[^&|]*\b(or|and)\b', stripped):
+            issues.append(f"🔴 P3-5 / Gotcha #38 array.get 在 or/and 後面 @ line {i+1}：Pine 不短路，改 nested if")
+            break  # Report once
+
+    # 10. (NEW 2026/05/03 Gotcha #39) CBOE specialty index symbols not on Essential
+    # 只看 request.security 引用，不看註解
+    risky_symbols = {
+        'CBOE:BKX': 'AMEX:KBE',
+        'CBOE:SKEW': '(無 fallback，刪掉)',
+        'CBOE:BXY': '(無 fallback)',
+    }
+    for risky, fallback in risky_symbols.items():
+        # Match in request.security("..."), not in comments
+        if re.search(r'request\.security\s*\(\s*["\']' + re.escape(risky) + r'["\']', code):
+            issues.append(f"🔴 Gotcha #39 {risky} 不在 Essential 帳號 → fallback {fallback}")
+
     if not issues:
         issues.append("✅ 所有檢查通過")
 

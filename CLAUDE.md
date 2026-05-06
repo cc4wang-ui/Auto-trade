@@ -79,12 +79,35 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | **Pine v10.1/v10.2 補強** | **@context/v10.1-task-spec.md / @context/v10.2-task-spec.md** |
 | 查 Symbol 對應 | @config.json |
 
-## 當前狀態快照（2026/05）
+## 這個 repo 與相關 repo（2026-05-05 拆分後）
 
-- v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，等實機驗證
-- **v10.1 Pine 已產出**（私人信貸壓力 → 強制紅燈），檔案 `strategy_v10_1.pine`，等實機驗證
-- **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → 既有 Telegram bot 推播。配置檔在 `automation/`
-- **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
+**這個 repo 只負責 trading core**（Pine 策略 + Macro Routine prompt + Pine alert 設定）。其他 service 已拆出去：
+
+| Repo | 用途 | 備註 |
+|---|---|---|
+| **`cc4wang-ui/Auto-trade`**（本 repo） | v10/v10.1/v10.2 Pine 策略、Macro Routine prompt、context 個人財務 | 個人交易 source of truth |
+| `cc4wang-ui/telegram-trade-bot` | GAS Web App + Telegram bot 推播服務（WF1-4、earnings、macro/v10 endpoint） | 從本 repo 拆出 |
+| `crosswang-collab/mikai-youtube-etl` | 17LIVE YouTube ETL（工作）| 不屬個人，已搬至工作 org |
+| `crosswang-collab/playwrightbot` | jobcan 自動化（工作） | |
+| `crosswang-collab/Kirby-transition-plan` | Vtuber division 交接（工作） | |
+
+→ 改 GAS handler / Telegram bot 邏輯 = 用 `telegram-trade-bot` 的 session，不是這個。  
+→ 17LIVE 工作 = 用 crosswang-collab 對應 repo 的 session，不要混進這個 repo。  
+→ 拆分歷史見 `docs/dispatch-extract-bot-repo.md`（merged via PR #15-16）
+
+## 當前狀態快照（2026/05/03 — Pine 實機 debug 後）
+
+- **v10.0 / v10.1 / v10.2 Pine 三檔同步修了 4 類 bug**（由本 commit 完成 rebase）：
+  - 21 個多行 ternary → if/else 改寫（Gotcha #7 / #37）
+  - CBOE:BKX → AMEX:KBE（Gotcha #39）
+  - COMEX:HG1! → CAPITALCOM:COPPER（Gotcha #15）
+  - `array.get` 在 OR/AND 後 → nested if 修正（P3-5 / Gotcha #38）
+- **v10.2 已實機編譯成功**，dashboard 應正常 render（待 Cross 重貼後確認）
+- **`docs/dev-guide.md` 新增 Gotcha #36-40 + 強制 pre-push checklist**
+- **`scripts/validate_pine.py` 新增 lint**：多行 ternary 偵測 / array.get 在 OR-AND 偵測 / CBOE specialty symbol 偵測
+- **`context/session-2026-05-03-pine-bugfix-postmortem.md`** — 完整事故記錄
+- **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → Telegram bot（在 `cc4wang-ui/telegram-trade-bot`）。本 repo 配置在 `automation/`
+- **v10 訊號即時推播**：Pine alert webhook → GAS（在 `telegram-trade-bot`）→ Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
 - 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC
 - **1810 小米 已於 4/29-30 全出清**（成本 54.88，分兩批 31.20 / 30.00 出，總損益 -NT$207K）
 - 自動化 pipeline：TradingView Essential webhook → TradersPost → IB（Cross 入金中）
@@ -101,6 +124,6 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 如果準備寫 code，先讀：
 1. 對應 skill（pine-development / price-validation / financial-analysis）
 2. @docs/dev-guide.md 相關 Gotcha
-3. 跑 validate（Pine 用 validate_pine.py、Python 用 mypy/pytest）
+3. 跑 validate（Pine 用 `scripts/validate_pine.py`、Python 用 mypy/pytest）
 
 **沒跑驗證的 code 不算交付完成。**
