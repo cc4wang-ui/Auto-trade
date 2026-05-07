@@ -1,4 +1,4 @@
-# Current State — mikai YouTube ETL (snapshot 2026-05-04 UTC)
+# Current State — mikai YouTube ETL (snapshot 2026-05-04 UTC, updated 2026-05-06)
 
 ## GCP project
 
@@ -11,8 +11,38 @@
 
 - **Repo**: `cc4wang-ui/auto-trade`
 - **Active branch**: `claude/youtube-etl-data-api-mode`
-- **PR**: #14 (draft, 8+ commits)
-- **Gotcha branch (separate)**: `claude/youtube-etl-review-KUnqD` (PR #4, has dev-guide.md updates #38-51)
+- **PR**: #14 (state=closed, not merged — branch lives on with handoff commits past PR head)
+- **Gotcha branch (separate)**: `claude/youtube-etl-review-KUnqD` (PR #4, has `dev-guide.md` updates #38-51)
+
+### Commit history on claude/youtube-etl-data-api-mode (this session, 2026-05-04 → 2026-05-06)
+
+In chronological order (older → newer):
+
+| Commit (short) | Date (UTC) | Subject | What it changed |
+|----------------|------------|---------|------------------|
+| `20047cb` | 2026-05-04 | Add API-key auth mode for Data-API-only deployments | 7 files: `lib/config.py` + `secrets.py` + `youtube_client.py` + 4 handlers. Adds `YOUTUBE_AUTH_MODE` env, `build_data_client()`, no-op analytics in api_key mode. |
+| `190662a` | 2026-05-04 | Fix import: `google.cloud.secret_manager` → `secretmanager` | 1-line fix to module name (Gotcha #46). Without this, container worker fails to boot. |
+| `98ceae7` | 2026-05-04 | Fix BQ 413 + make finally blocks resilient | `bq_writer.py` chunks streaming inserts at 500 rows. Handlers wrap each finally write in independent try/except (Gotcha #47, #48). |
+| `adadcba` | 2026-05-04 | Catch HttpError per channel/chunk so one bad call doesn't 500 the run | `handlers/{daily,hourly,live_poll}.py` add per-call `try/except HttpError` (Gotcha #50). |
+| `b3ba0f0` | 2026-05-04 | Phase 2: `mart_talent_daily_kpi` rollup SQL | `sql/mart/01_mart_talent_daily_rollup.sql` + README. MERGE on (report_date, channel_id), idempotent. Schedule: BQ scheduled query 04:00 UTC. |
+| `14b34d7` | 2026-05-04 | Phase 2.5: per-content (video / livestream) mart layer | DDL adds `mart_content_daily` table. `sql/mart/02_mart_content_daily_rollup.sql` does per-(video, day) MERGE. Splits content_type for Videos / Lives drill-down. |
+| `563e7af` | 2026-05-04 | Add Path A (OAuth bootstrap) walkthrough doc | `youtube-etl/docs/path-a-oauth-bootstrap.md`. A.1 IT → A.5 monitoring. Note: was overwritten in subsequent push, recopied as `f742c44`. |
+| `90c0b12` | 2026-05-06 | Handoff Stage 1 step 1+2: README + gotchas | New `youtube-etl/docs/handoff-2026-05-04/` folder. README.md (entry, file index, current state). gotchas.md (#27-51, 25 traps). |
+| `c35535f` | 2026-05-06 | Handoff Stage 1 step 3-6: learnings + current-state + runbook + continuation-prompt | learnings.md (THE critical doc, Dos/Don'ts), current-state.md (system snapshot — this file), runbook.md (daily/weekly ops), continuation-prompt.md (10-question quiz for new Claude). |
+| `f742c44` | 2026-05-06 | Handoff Stage 1 step 8: copy path-a-oauth-bootstrap.md into handoff folder | Re-pushes path-a into `handoff-2026-05-04/` since `youtube-etl/docs/path-a-oauth-bootstrap.md` was lost in earlier tree operation. |
+
+Total: **10 commits** since branch fork from `claude/youtube-etl-review-i4TIH` at `261a586`.
+
+### Commit history on claude/youtube-etl-review-KUnqD (gotcha-only branch, PR #4)
+
+| Commit (short) | Date (UTC) | Subject |
+|----------------|------------|---------|
+| `3e048e1` | 2026-05-04 | Log gotchas #38-40 from STEP 4-C deployment |
+| `1f016e3` | 2026-05-04 | Log gotchas #41-45 from Cloud Run STEP 5+6 deployment |
+| `9bb8d4c` | 2026-05-04 | Log gotchas #46-50 from STEP 6 smoke test debug |
+| `233446c` | 2026-05-06 | Add Gotcha #51: give Cross complete files, not patches |
+
+Total: **4 commits** on top of fork point.
 
 ## Cloud Run service
 
@@ -122,9 +152,9 @@ Both use `youtube-etl-runner@...` SA. The runner SA has `roles/iam.serviceAccoun
 | Videos | mart_content_daily content_type='video' | red #ea4335 | per-video drill-down |
 | Lives | mart_content_daily content_type LIKE 'live_%' | purple #9c27b0 | per-livestream drill-down |
 
-### Status: 🟡 Cross hasn't run the full Code.gs yet at handoff time
+### Status
 
-The complete Code.gs is in `dashboard-code.gs` in this folder. Cross will paste-and-run on first new Claude session.
+🟡 At handoff, Cross has not yet pasted the full Code.gs and run buildDashboard. Apps Script source is in `dashboard-code.gs` in this folder. Cross will paste-and-run on first new Claude session.
 
 ## Path A status
 
