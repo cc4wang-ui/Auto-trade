@@ -10,16 +10,15 @@ Sheet URL（Cross 個人帳號）：
 
 ## ⚠ 前置：讓自動化讀得到（一次性）
 
-排程的 Claude 環境連的是 **crosswang@17.media**,但這個 sheet 在個人帳號下,跨帳號讀不到。二選一：
+✅ **已完成**：sheet 已分享給 `crosswang@17.media`,自動化讀得到了。
 
-- **(推薦) 分享**：在 sheet 右上「共用」→ 加 `crosswang@17.media` 為**檢視者**。一鍵,最省事。
-- **或** 把這個 sheet 移到 / 重建在 crosswang@17.media 的 Drive（但個人財務放工作帳號,自行評估）。
-
-> 網頁 dashboard 走另一條路（見最後），不受此限。
+> ⚠ 這個 sheet 目前裝的是舊的「盤前 Daily Post」內容(22 萬字元)。**不要覆蓋它**——
+> 開一個新分頁(tab)叫 **`Portfolio`**,把下面的模板貼在新分頁,再把**那個分頁**發布為 CSV。
+> routine 跟網頁都只讀這條 CSV,不碰整份 sheet(整份太大每天讀會爆)。
 
 ---
 
-## 欄位設計（貼到 A1）
+## 欄位設計（貼到 `Portfolio` 分頁 A1）
 
 | 欄 | 標題 | 你填? | 內容 / 公式 |
 |----|------|-------|------------|
@@ -67,13 +66,16 @@ Sheet URL（Cross 個人帳號）：
 ## 資料流
 
 ```
-Snowball App  ──(你更新股數/成本)──►  Google Sheet  ──┬─► 每早 routine 讀 → 套電子報模板 → Gmail
-                                       (GOOGLEFINANCE)  └─► Vercel 私密網頁 → 隨時開即時看
+Snowball App ─(更新股數/成本)─► Portfolio 分頁 ─(發布為 CSV)─┬─► 每早 routine 讀 CSV → 套模板 → Gmail
+                                (GOOGLEFINANCE)               └─► Vercel 私密網頁讀 CSV → 隨時即時看
 ```
 
-## 網頁 dashboard 的資料路（不受工作/個人帳號限制）
+## 發布 Portfolio 分頁為 CSV（你做,一次性）
 
-Vercel 網頁讀 sheet 用「發布為 CSV」：
-sheet → 檔案 → 共用 → **發布到網路** → 選整張表 → CSV → 取得網址。
-這串網址不可猜但屬公開讀取,**會含你的淨值**。網頁前面我會加一道密碼/不可猜路徑保護。
-（若你不想有任何公開 URL,改用 Apps Script 私密 endpoint,設定多 2 步,告訴我即可。）
+1. 點 **`Portfolio` 分頁**(確定停在這個 tab)
+2. 檔案 → 共用 → **發布到網路**
+3. 左邊下拉選 **`Portfolio`(不是整份文件)**,右邊選 **CSV**
+4. 按「發布」→ 複製網址 → **貼給我**
+
+這串網址不可猜但技術上公開可讀,**會含你的淨值** → 網頁前面我會加密碼保護(你選的方案)。
+routine 也讀同一條 CSV,所以不碰整份 22 萬字的 sheet。
