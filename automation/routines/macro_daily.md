@@ -141,15 +141,41 @@ Overheating 階段續抱但不加碼，留 12% 現金應對回檔。
 
 ---
 
-## Step 6：用 Gmail 寄信
+## Step 5.5：讀持倉 Google Sheet（即時損益）
 
-- 收件人：`cc4wang@gmail.com`
-- 主旨：`【台指期宏觀】2026-06-21 — 夏 Overheating ☀️ 🔴紅燈`
-- 內文：Step 5 的 briefing（純文字或簡單 HTML 表格皆可）
+用 Google Drive 工具 `read_file_content` 讀這份試算表（由連線帳號 `crosswang@17.media` 持有，直接讀得到）：
+
+```
+fileId = 1z6F9oEZKbDW9jSKSGSuKv1th8LyxDPRhWagla9TG-bQ   # Cross Portfolio — Live (GOOGLEFINANCE)
+```
+
+回傳是 Markdown 表格，欄位：`代號 名稱 類別 股數 成本 幣別 現價 匯率TWD 市值TWD 成本TWD 損益TWD 損益% 備註`。
+股價/匯率由 GOOGLEFINANCE 即時算好，**routine 不必自己查股價**（避開 Rule 1 的雷）。
+
+- 取每檔的 `市值TWD`、`損益TWD`、`損益%`，依市值排序。
+- 合計：總市值 = Σ市值TWD、總損益 = Σ損益TWD、報酬率 = 總損益/Σ成本TWD。
+- 任一檔 `現價` 空白（如 00956 自訂標的未填）→ 該檔標「價格待更新」，仍計入但備註提醒。
+
+---
+
+## Step 6：套電子報模板 → Gmail 寄信
+
+讀 `automation/newsletter/template.html`，把 token 換成今天的值：
+
+| Token | 來源 |
+|-------|------|
+| `{{DATE}}` `{{REGIME_BADGE}}` `{{BLUF}}` `{{LIGHTS}}` `{{FED}}` `{{ACTIONS}}` `{{TODO}}` | Step 2–5 總經 |
+| `{{NW_VALUE}}` `{{NW_PNL}}` `{{NW_PCT}}` `{{PNL_CLASS}}` `{{HOLDINGS_ROWS}}` `{{TOTAL_ROW}}` | Step 5.5 持倉 |
+
+- 損益為正 → `PNL_CLASS=pos`（綠）、負 → `neg`（紅）；每列 pill 同理 `g`/`r`。
+- 寄信（Gmail HTML）：
+  - 收件人：`cc4wang@gmail.com`
+  - 主旨：`【宏觀×持倉】2026-06-21 — ☀️夏 Overheating 🔴紅燈 ｜淨值 +57%`
+  - 內文：填好的 template.html（HTML 信）
 
 寄完在 Routine log 留一行：
 ```
-✅ Macro routine 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜Gmail 已寄 cc4wang@gmail.com｜待補 2 項
+✅ 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜總市值 7.22M (+57%)｜Gmail 已寄｜待補 2 項
 ```
 
 ---
@@ -157,6 +183,7 @@ Overheating 階段續抱但不加碼，留 12% 現金應對回檔。
 ## 失敗處理
 
 - 數據抓不到：該欄填 null + 在【待補】列名，**超過 3 個核心欄位 null** → 仍寄信但主旨加 `⚠資料不全`。
+- 持倉 Sheet 讀不到：仍寄總經段，持倉段標「Sheet 暫讀不到」，主旨加 `⚠持倉缺`。
 - Gmail 寄信失敗：等 5 秒重試 1 次；仍失敗 → 在 Routine log 標 ERROR（Cross 會在排程介面看到）。
 - 算法/邏輯衝突：log 說明，用最後合理值，不要硬塞假數據。
 
