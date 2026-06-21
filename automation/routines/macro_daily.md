@@ -158,6 +158,15 @@ fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Li
 - 任一檔 `現價` 空白 → 該檔標「價格待更新」，仍計入但備註提醒。
 - 表尾的「小計」三列是 sheet 內 SUMIF 結果，可直接引用。
 
+**同一份檔還有 `已實現` 分頁**（read_file_content 會一起回傳）：欄位 `出場日 標的 類型 已實現損益TWD 備註`。
+- 加總所有列 = **已實現損益**（落袋，含賣出 + 配息）。
+- 若分頁不存在或空 → 已實現 = 0，標「尚未記錄」。
+
+**三層損益**：
+- 未實現 = Σ持倉 `損益TWD`（上方表）
+- 已實現 = Σ`已實現` 分頁
+- **總損益 = 未實現 + 已實現**
+
 ---
 
 ## Step 6：套電子報模板 → Gmail 寄信
@@ -167,7 +176,9 @@ fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Li
 | Token | 來源 |
 |-------|------|
 | `{{DATE}}` `{{REGIME_BADGE}}` `{{BLUF}}` `{{LIGHTS}}` `{{FED}}` `{{ACTIONS}}` `{{TODO}}` | Step 2–5 總經 |
-| `{{NW_VALUE}}` `{{NW_PNL}}` `{{NW_PCT}}` `{{PNL_CLASS}}` `{{HOLDINGS_ROWS}}` `{{TOTAL_ROW}}` | Step 5.5 持倉 |
+| `{{NW_VALUE}}` 總市值、`{{UNREALIZED}}` 未實現、`{{REALIZED}}` 已實現、`{{TOTAL_PNL}}` 總損益、`{{NW_PCT}}` 報酬率 | Step 5.5 |
+| `{{LOCKED_PNL}}` 🔒鎖定損益、`{{TRADEABLE_PNL}}` 🎚可交易損益 | Step 5.5 分組小計 |
+| `{{HOLDINGS_ROWS}}` 持倉列、`{{TOTAL_ROW}}` 合計列、`{{PNL_CLASS}}` pos/neg | Step 5.5 |
 
 - 損益為正 → `PNL_CLASS=pos`（綠）、負 → `neg`（紅）；每列 pill 同理 `g`/`r`。
 - 寄信（Gmail HTML）：

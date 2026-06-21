@@ -62,8 +62,13 @@
     <div class="regime">{{REGIME_BADGE}}</div>
     <div class="nw">
       <div><div class="k">總市值 (TWD)</div><div class="v">{{NW_VALUE}}</div></div>
-      <div><div class="k">未實現損益</div><div class="v {{PNL_CLASS}}">{{NW_PNL}}</div></div>
-      <div><div class="k">報酬率</div><div class="v {{PNL_CLASS}}">{{NW_PCT}}</div></div>
+      <div><div class="k">總損益 ({{NW_PCT}})</div><div class="v {{PNL_CLASS}}">{{TOTAL_PNL}}</div></div>
+    </div>
+    <div class="nw" style="margin-top:10px;font-size:13px">
+      <div><div class="k">未實現</div><div class="v" style="font-size:16px">{{UNREALIZED}}</div></div>
+      <div><div class="k">已實現</div><div class="v" style="font-size:16px">{{REALIZED}}</div></div>
+      <div><div class="k">🔒 鎖定</div><div class="v" style="font-size:16px">{{LOCKED_PNL}}</div></div>
+      <div><div class="k">🎚 可交易</div><div class="v" style="font-size:16px">{{TRADEABLE_PNL}}</div></div>
     </div>
   </div>
 
