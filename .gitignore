@@ -13,5 +13,21 @@ secrets/
 *.env
 *.env.local
 .env*
+!.env.example
 *credentials*
 *webhook*url*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local state (daily loss tracker default path)
+ib_mcp_state/

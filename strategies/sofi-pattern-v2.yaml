@@ -1,0 +1,27 @@
+name: sofi-pattern-v2
+description: |
+  SOFI 1H pattern_detector_v2 signals routed through IB MCP.
+  Phase 1: source is TradingView alert (Pine indicator LAYER 6).
+  Phase 2: may add claude-analysis source as a parallel signal feed.
+
+universe: [SOFI]
+timeframe: 1H
+
+entry:
+  source: tradingview-alert
+  direction: long          # cash account = no shorts
+  filters:
+    min_quality: 70        # mirrors Pine indicator's tpMinQuality default
+    min_rr: 1.5
+
+risk:
+  per_trade_dollars: 25    # 5% of $500 budget
+  daily_loss_cap: 50       # 10% of $500
+  max_concurrent: 1        # one SOFI position at a time
+
+exit:
+  type: bracket
+  stop: signal.stop_price
+  target: signal.target_price
+
+enabled: false             # explicit opt-in required before any live execution

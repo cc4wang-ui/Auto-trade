@@ -88,3 +88,44 @@ jobs:
             exit 1
           fi
           echo "No live webhook URLs found."
+
+  python-ib-mcp:
+    name: Python — ib-mcp tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: automation/ib-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test deps (skip ib_async/fastmcp — stubbed in conftest)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run pytest with coverage
+        run: PYTHONPATH=src pytest tests/ --cov=ib_mcp --cov-report=term-missing -v
+
+  python-strategies:
+    name: Python — strategies loader tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pydantic pyyaml
+
+      - name: Run loader tests (validates every yaml in strategies/)
+        run: pytest strategies/tests/ -v
