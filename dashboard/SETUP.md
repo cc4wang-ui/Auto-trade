@@ -20,8 +20,8 @@
 ## 第 2 段：把兩份表共用給 service account
 
 兩份表各做一次：右上「共用」→ 貼上上面那個 `...iam.gserviceaccount.com` email → 設**檢視者** → 傳送。
-- 持倉表：`1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw`
-- 已實現表：`15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4`
+- 持倉表：`1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE`
+- 已實現表：`1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM`
 
 ## 第 3 段：Vercel 部署 + 保護
 

@@ -143,10 +143,10 @@ Overheating 階段續抱但不加碼，留 12% 現金應對回檔。
 
 ## Step 5.5：讀持倉 Google Sheet（即時損益）
 
-用 Google Drive 工具 `read_file_content` 讀這份試算表（由連線帳號 `crosswang@17.media` 持有，直接讀得到）：
+用 Google Drive 工具 `read_file_content` 讀這份試算表（由 Cross 個人帳號 `cc4wang@gmail.com` 持有；**排程環境須連個人 Google** 才讀得到）：
 
 ```
-fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Live v3 (含選擇權+現金)
+fileId = 1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE   # Cross Portfolio — Live (持倉)
 ```
 
 回傳是 Markdown 表格，欄位：`代號 名稱 帳戶 屬性 股數 成本 幣別 現價 匯率TWD 市值TWD 成本TWD 損益TWD 損益% 備註`。
@@ -158,9 +158,9 @@ fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Li
 - 任一檔 `現價` 空白 → 該檔標「價格待更新」，仍計入但備註提醒。
 - 表尾的「小計」三列是 sheet 內 SUMIF 結果，可直接引用。
 
-**另讀已實現記錄表**（獨立檔，同連線帳號持有）：
+**另讀已實現記錄表**（獨立檔，同為個人帳號持有）：
 ```
-fileId = 15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4   # Cross — 已實現損益 (Live)
+fileId = 1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM   # Cross — 已實現損益 (Live)
 ```
 欄位 `出場日 標的 類型 已實現損益TWD 備註`；取「已實現合計」列的值（= 從 2026/06 起累計，含賣出 + 配息）。空 → 已實現 = 0。
 

@@ -4,8 +4,8 @@
 
 const { google } = require('googleapis');
 
-const SHEET_HOLD = '1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw'; // 持倉
-const SHEET_REAL = '15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4'; // 已實現
+const SHEET_HOLD = '1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE'; // 持倉
+const SHEET_REAL = '1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM'; // 已實現
 
 module.exports = async (req, res) => {
   try {
