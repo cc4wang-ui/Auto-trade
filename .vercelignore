@@ -1,0 +1,9 @@
+# 只部署 dashboard/，敏感檔一律不上傳到 Vercel
+*.md
+*.pine
+*.py
+*.gs
+config.json
+.github/
+docs/
+automation/
