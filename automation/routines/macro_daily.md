@@ -158,9 +158,11 @@ fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Li
 - 任一檔 `現價` 空白 → 該檔標「價格待更新」，仍計入但備註提醒。
 - 表尾的「小計」三列是 sheet 內 SUMIF 結果，可直接引用。
 
-**同一份檔還有 `已實現` 分頁**（read_file_content 會一起回傳）：欄位 `出場日 標的 類型 已實現損益TWD 備註`。
-- 加總所有列 = **已實現損益**（落袋，含賣出 + 配息）。
-- 若分頁不存在或空 → 已實現 = 0，標「尚未記錄」。
+**另讀已實現記錄表**（獨立檔，同連線帳號持有）：
+```
+fileId = 15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4   # Cross — 已實現損益 (Live)
+```
+欄位 `出場日 標的 類型 已實現損益TWD 備註`；取「已實現合計」列的值（= 從 2026/06 起累計，含賣出 + 配息）。空 → 已實現 = 0。
 
 **三層損益**：
 - 未實現 = Σ持倉 `損益TWD`（上方表）
