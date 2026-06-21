@@ -146,15 +146,17 @@ Overheating 階段續抱但不加碼，留 12% 現金應對回檔。
 用 Google Drive 工具 `read_file_content` 讀這份試算表（由連線帳號 `crosswang@17.media` 持有，直接讀得到）：
 
 ```
-fileId = 1z6F9oEZKbDW9jSKSGSuKv1th8LyxDPRhWagla9TG-bQ   # Cross Portfolio — Live (GOOGLEFINANCE)
+fileId = 1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw   # Cross Portfolio — Live v3 (含選擇權+現金)
 ```
 
-回傳是 Markdown 表格，欄位：`代號 名稱 類別 股數 成本 幣別 現價 匯率TWD 市值TWD 成本TWD 損益TWD 損益% 備註`。
+回傳是 Markdown 表格，欄位：`代號 名稱 帳戶 屬性 股數 成本 幣別 現價 匯率TWD 市值TWD 成本TWD 損益TWD 損益% 備註`。
 股價/匯率由 GOOGLEFINANCE 即時算好，**routine 不必自己查股價**（避開 Rule 1 的雷）。
 
-- 取每檔的 `市值TWD`、`損益TWD`、`損益%`，依市值排序。
-- 合計：總市值 = Σ市值TWD、總損益 = Σ損益TWD、報酬率 = 總損益/Σ成本TWD。
-- 任一檔 `現價` 空白（如 00956 自訂標的未填）→ 該檔標「價格待更新」，仍計入但備註提醒。
+- 依 `屬性` 分兩組：**🔒 鎖定** 與 **🎚 可交易**，各組自己加總市值/損益/報酬率。
+- 整體合計：總市值 = Σ市值TWD、總損益 = Σ損益TWD、報酬率 = 總損益/Σ成本TWD。
+- `現金` 列（代號=CASH）計入「可交易」市值（可動水位），損益為 0。
+- 任一檔 `現價` 空白 → 該檔標「價格待更新」，仍計入但備註提醒。
+- 表尾的「小計」三列是 sheet 內 SUMIF 結果，可直接引用。
 
 ---
 
