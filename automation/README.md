@@ -23,11 +23,12 @@ automation/
 | **Name** | `daily-macro-regime` |
 | **Repository** | `cc4wang-ui/Auto-trade` |
 | **Working directory** | `.` |
-| **Schedule (UTC)** | `0 6 * * 1-5`（= 台北 **14:00**，台股 13:30 收盤後，週一至五）|
+| **Schedule (UTC)** | `0 23 * * 0-4`（= 台北 **07:00**，台股開盤前、美股剛收，台北週一至五）|
 | **Prompt** | `Read automation/routines/macro_daily.md and execute the routine.` |
 
-> ⏰ **時區**：Routine cron 是 UTC。台北 = UTC+8。
-> 台北 14:00 → cron `0 6`。想加美股盤前那班 → 再加一條 `0 13`（= 台北 21:00）。
+> ⏰ **時區眉角**：Routine cron 是 UTC。台北 = UTC+8。
+> 台北 07:00 = UTC 前一天 23:00，所以「台北週一至五早上 7 點」要寫成 `0 23 * * 0-4`
+> （UTC 週日到週四 23:00）。不是 `* * 1-5`，那會錯開一天。
 >
 > 📧 **Gmail**：routine 用 Gmail 工具寄到 `cc4wang@gmail.com`，
 > 需確保排程的 Claude 環境已連 Gmail（這個 session 已連）。
@@ -36,7 +37,7 @@ automation/
 
 ## 它每天做什麼
 
-1. 台股收盤後觸發
+1. 台北 07:00 早晨觸發（台股開盤前、美股剛收，隔夜數據最新）
 2. web_search 抓 VIX、US 10Y/2Y（算曲線）、10Y 實質利率、DXY、SPX、TAIEX、ISM PMI、最近 FOMC + Fed 立場、WTI、CPI
 3. 依四季框架判 regime（春 Goldilocks 現金 5% / 夏 Overheating 12% / 秋 Stagflation 18–28% / 冬 Deflation 12%）
 4. 套硬規則（VIX>28 暫停買入、實質利率>2% 壓估值 🔴、ISM<50 收縮）
@@ -52,6 +53,6 @@ automation/
 | 數據來源 | GAS 算 Macro Score v3 | Claude web_search + FRED + TWSE |
 | 推播管道 | GAS → Telegram | Claude → Gmail |
 | 外部依賴 | GAS Web App、token、webhook | 無 |
-| 排程 | Anthropic Routine（雙時段） | Anthropic Routine（台股收盤後一班） |
+| 排程 | Anthropic Routine（雙時段） | Anthropic Routine（台北 07:00 早晨一班） |
 
 > 根目錄的 `macro_snapshot_prompt.md`、`macro_snapshot_handler.gs` 是**舊 GAS 版，保留備查但不再使用**。

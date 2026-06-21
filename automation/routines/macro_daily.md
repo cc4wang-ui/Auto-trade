@@ -1,7 +1,8 @@
 # Daily Macro Regime Routine v2 — Cross 台指期宏觀監控
 
-> **這是 Claude Code Routine 的 prompt。** 雲端排程每天台股收盤後觸發，Claude 自己
-> web_search 抓數據 → 判 regime → 出繁中 BLUF briefing → 用 Gmail 寄到 Cross 信箱。
+> **這是 Claude Code Routine 的 prompt。** 雲端排程每天早晨（台北 07:00、台股開盤前、
+> 美股剛收）觸發，Claude 自己 web_search 抓數據 → 判 regime → 出繁中 BLUF briefing
+> → 用 Gmail 寄到 Cross 信箱。隔夜美股 / FOMC 數據最新，正好當早盤前的宏觀地圖。
 >
 > **設計原則（2026-06 新方向）：GAS 已棄用。** 不再 POST 任何 webhook、不依賴 Telegram。
 > 自動化的家就是 Claude 排程本身：Claude 用 web_search + FRED + TWSE OpenAPI 拿數，
@@ -31,14 +32,15 @@
 now_utc   = 現在 UTC 時間
 hour_utc  = now_utc 的小時
 
-排程目標 = 台北 14:00（台股 13:30 收盤後）= UTC 06:00，週一至週五。
+排程目標 = 台北 07:00（台股開盤前、美股收盤後）= UTC 23:00（前一日），台北週一至週五。
 
-if hour_utc 在 5–7 之間：session = "tw_close"（正常）
+if hour_utc == 23：session = "tw_morning"（正常）
 else: session = "manual"，log「⚠ 非預期時間觸發（UTC hour={hour_utc}）」但仍照常產出。
 ```
 
 > 排程跑在 Anthropic 雲端、預設 UTC。台北 = UTC+8。
-> 想要台北 14:00 → cron 寫 `0 6 * * 1-5`。Step 0 會抓出設錯的情況。
+> 台北 07:00 = UTC 前一天 23:00，所以台北週一至週五 → cron `0 23 * * 0-4`（UTC 週日到週四）。
+> Step 0 會抓出設錯的情況。
 
 ---
 
@@ -147,7 +149,7 @@ Overheating 階段續抱但不加碼，留 12% 現金應對回檔。
 
 寄完在 Routine log 留一行：
 ```
-✅ Macro routine 完成｜session=tw_close｜Regime=夏 Overheating｜燈號=🔴｜Gmail 已寄 cc4wang@gmail.com｜待補 2 項
+✅ Macro routine 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜Gmail 已寄 cc4wang@gmail.com｜待補 2 項
 ```
 
 ---
