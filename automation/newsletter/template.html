@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!--
+  Cross 宏觀 × 持倉日報 — 電子報模板
+  routine 每早讀 Google Sheet + web_search 總經，套此模板 → Gmail HTML 信。
+  Vercel 即時網頁也複用同一套 CSS。
+
+  Token 對照（routine 填值）：
+    {{DATE}}            日期，如「2026 年 6 月 21 日（六）」
+    {{REGIME_BADGE}}    如「☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12%」
+    {{NW_VALUE}}        總市值 TWD（千分位）
+    {{NW_PNL}}          未實現損益 TWD（帶 +/−）
+    {{NW_PCT}}          報酬率，如 +59.0%
+    {{PNL_CLASS}}       pos / neg（控制紅綠）
+    {{BLUF}}            一段總經結論
+    {{LIGHTS}}          燈號卡 HTML（VIX/實質利率/ISM/CPI/曲線/DXY/WTI/TAIEX）
+    {{FED}}             Fed 段落
+    {{HOLDINGS_ROWS}}   持倉 <tr>…</tr>（每檔一列，依市值排序，紅綠標色）
+    {{TOTAL_ROW}}       合計列
+    {{ACTIONS}}         今日動作 <li>…</li>
+    {{TODO}}            待補（需 dashboard）
+-->
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cross 宏觀 × 持倉日報 — {{DATE}}</title>
+<style>
+  :root{--bg:#0b1020;--surface:#141b30;--surface2:#1b2440;--line:#26314f;--txt:#e8ecf6;--muted:#8b97b5;--gold:#f4c25a;--green:#34d399;--green-bg:rgba(52,211,153,.12);--red:#f87171;--red-bg:rgba(248,113,113,.12);--blue:#60a5fa}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;line-height:1.55}
+  .wrap{max-width:680px;margin:0 auto;padding:20px 14px 60px}
+  .hero{background:linear-gradient(135deg,#1a2342,#0e1530);border:1px solid var(--line);border-radius:18px;padding:24px}
+  .date{color:var(--muted);font-size:13px}.h-title{font-size:22px;font-weight:800;margin:4px 0 16px}
+  .regime{display:inline-flex;gap:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.3);padding:6px 14px;border-radius:999px;font-weight:700;font-size:14px}
+  .nw{display:flex;gap:24px;flex-wrap:wrap;margin-top:18px}.nw .k{color:var(--muted);font-size:12px}.nw .v{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+  h2{font-size:15px;color:var(--gold);margin:30px 4px 12px;text-transform:uppercase}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .bluf{border-left:3px solid var(--gold);padding-left:14px;color:#dbe2f3;font-size:14.5px}
+  .lights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+  .light{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .light .l{font-size:12px;color:var(--muted)}.light .r{font-size:17px;font-weight:700;display:flex;justify-content:space-between}
+  .tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px}.tag.g{background:var(--green-bg);color:var(--green)}.tag.r{background:var(--red-bg);color:var(--red)}.tag.y{background:rgba(244,194,90,.14);color:var(--gold)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:right;color:var(--muted);font-size:11.5px;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:10px 6px;border-bottom:1px solid rgba(38,49,79,.5);font-variant-numeric:tabular-nums}
+  .sym{font-weight:700}.nm{color:var(--muted);font-size:11px;display:block}
+  .pill{font-size:12px;font-weight:700;padding:3px 8px;border-radius:7px;display:inline-block;min-width:62px;text-align:right}.pill.g{background:var(--green-bg);color:var(--green)}.pill.r{background:var(--red-bg);color:var(--red)}
+  tfoot td{border-top:2px solid var(--line);font-weight:800;font-size:14px}
+  .fed{background:linear-gradient(135deg,rgba(96,165,250,.1),rgba(96,165,250,.02));border:1px solid rgba(96,165,250,.25);margin-top:14px}.fed b{color:var(--blue)}
+  ul.act{list-style:none}ul.act li{padding:7px 0 7px 24px;position:relative;font-size:14px}ul.act li::before{content:"▸";position:absolute;left:6px;color:var(--gold)}
+  .todo{color:var(--muted);font-size:13px;margin-top:12px}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:26px;text-align:center;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="date">{{DATE}} · 早晨宏觀 × 持倉日報</div>
+    <div class="h-title">早安 Cross ☕</div>
+    <div class="regime">{{REGIME_BADGE}}</div>
+    <div class="nw">
+      <div><div class="k">總市值 (TWD)</div><div class="v">{{NW_VALUE}}</div></div>
+      <div><div class="k">未實現損益</div><div class="v {{PNL_CLASS}}">{{NW_PNL}}</div></div>
+      <div><div class="k">報酬率</div><div class="v {{PNL_CLASS}}">{{NW_PCT}}</div></div>
+    </div>
+  </div>
+
+  <h2>① 總經 Regime</h2>
+  <div class="card">
+    <p class="bluf">{{BLUF}}</p>
+    <div class="lights">{{LIGHTS}}</div>
+    <div class="fed card">{{FED}}</div>
+  </div>
+
+  <h2>② 持倉 × 即時損益</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead>
+      <tbody>{{HOLDINGS_ROWS}}</tbody>
+      <tfoot>{{TOTAL_ROW}}</tfoot>
+    </table>
+  </div>
+
+  <h2>③ 今日動作</h2>
+  <div class="card">
+    <ul class="act">{{ACTIONS}}</ul>
+    <p class="todo">📋 <b>待補（需 dashboard）</b>：{{TODO}}</p>
+  </div>
+
+  <div class="foot">
+    持倉資料來自你的 Google Sheet · 總經來自 FRED / ISM / CME / TWSE / web_search<br>
+    🤖 由 Claude 排程每早 07:00 自動產生
+  </div>
+</div>
+</body>
+</html>
