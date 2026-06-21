@@ -28,25 +28,15 @@
   a.src{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(38,49,79,.5);color:var(--txt);text-decoration:none}
   a.src:last-child{border:none} a.src .go{color:var(--blue)}
   .foot{color:var(--muted);font-size:11.5px;margin-top:24px;text-align:center;line-height:1.7}
-  #gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:9}
-  #gate input{background:var(--surface2);border:1px solid var(--line);color:var(--txt);padding:12px 16px;border-radius:10px;font-size:16px;text-align:center}
-  #gate button{background:var(--gold);color:#0b1020;border:none;padding:11px 26px;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer}
   .muted{color:var(--muted)} .loading{text-align:center;color:var(--muted);padding:30px}
   .warn{background:rgba(244,194,90,.08);border:1px dashed rgba(244,194,90,.4);border-radius:10px;padding:10px 13px;font-size:12px;color:#d8c79e;margin-top:12px}
+  .reload{float:right;background:var(--surface2);border:1px solid var(--line);color:var(--blue);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer}
 </style>
 </head>
 <body>
-
-<div id="gate">
-  <div style="font-size:20px;font-weight:800">🔒 Cross 持倉</div>
-  <input id="pw" type="password" placeholder="密碼" autofocus>
-  <button onclick="unlock()">進入</button>
-  <div class="muted" style="font-size:12px">私人頁面</div>
-</div>
-
-<div class="wrap" id="app" style="display:none">
+<div class="wrap">
   <div class="hero">
-    <div class="date" id="ts">讀取中…</div>
+    <div class="date" id="ts">讀取中…<span class="reload" onclick="load()">↻ 更新</span></div>
     <div class="h-title">即時持倉 💹</div>
     <div class="nw">
       <div><div class="k">總市值 (TWD)</div><div class="v" id="nw">—</div></div>
@@ -63,92 +53,65 @@
   </div>
 
   <h2>持倉明細</h2>
-  <div class="card"><div id="holdings" class="loading">讀取試算表中…</div></div>
+  <div class="card"><div id="holdings" class="loading">讀取中…</div></div>
 
   <h2>📂 資料來源 — 要更新點這裡</h2>
   <div class="card">
     <a class="src" href="https://docs.google.com/spreadsheets/d/1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw/edit" target="_blank"><span>🟢 持倉 / 未實現<span class="nm">改股數·成本·選擇權現價</span></span><span class="go">開啟 ↗</span></a>
     <a class="src" href="https://docs.google.com/spreadsheets/d/15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4/edit" target="_blank"><span>🟢 已實現損益<span class="nm">賣出 / 配息逐筆記</span></span><span class="go">開啟 ↗</span></a>
-    <a class="src" href="#" onclick="return false" style="cursor:default"><span>⚙️ 股價 / 匯率<span class="nm">GOOGLEFINANCE 即時</span></span><span class="muted">自動</span></a>
-    <a class="src" href="#" onclick="return false" style="cursor:default"><span>⚙️ 總經數據<span class="nm">每早 Gmail 電子報為準</span></span><span class="muted">自動</span></a>
+    <a class="src" style="cursor:default"><span>⚙️ 股價 / 匯率<span class="nm">GOOGLEFINANCE 即時</span></span><span class="muted">自動</span></a>
+    <a class="src" style="cursor:default"><span>⚙️ 總經數據<span class="nm">每早 Gmail 電子報為準</span></span><span class="muted">自動</span></a>
   </div>
 
   <div class="warn" id="err" style="display:none"></div>
-  <div class="foot">數字直接讀自你的 Google Sheet（GOOGLEFINANCE 即時，約延遲 15–20 分）<br>🤖 Cross 私人 dashboard · 重新整理即更新</div>
+  <div class="foot">後端私密讀取你的 Google Sheet（service account）· 頁面受 Vercel Authentication 保護<br>🤖 Cross 私人 dashboard · 按 ↻ 即時更新</div>
 </div>
 
 <script>
-// ── 設定 ──
-const PW = "txf2026";  // 改密碼：改這行後重新 deploy
-const SHEET_HOLD = "1Yl78EhCobQF4nhwna_AdqUi_fUffAfnuyoUTZ6WKhsw";
-const SHEET_REAL = "15WIYk3ZklYg2LB1rVouoRlYDUpwK_aEjk8SQeornnV4";
-const gviz = id => `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`;
-
-function unlock(){
-  if(document.getElementById('pw').value === PW){
-    document.getElementById('gate').style.display='none';
-    document.getElementById('app').style.display='block';
-    load();
-  } else { document.getElementById('pw').value=''; document.getElementById('pw').placeholder='密碼錯誤'; }
-}
-document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')unlock();});
-
-// 簡易 CSV 解析（處理引號）
-function parseCSV(t){
-  const rows=[];let row=[],cur='',q=false;
-  for(let i=0;i<t.length;i++){const c=t[i];
-    if(q){ if(c==='"'){ if(t[i+1]==='"'){cur+='"';i++;} else q=false;} else cur+=c; }
-    else { if(c==='"')q=true; else if(c===','){row.push(cur);cur='';} else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur='';} else if(c!=='\r')cur+=c; }
-  }
-  if(cur!==''||row.length){row.push(cur);rows.push(row);}
-  return rows;
-}
 const num = s => { const n=parseFloat(String(s||'').replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; };
 const fmt = n => Math.round(n).toLocaleString('en-US');
 const signed = n => (n>=0?'+':'−')+fmt(Math.abs(n));
 const cls = n => n>=0?'pos':'neg';
 
 async function load(){
+  const err=document.getElementById('err'); err.style.display='none';
   try{
-    const [hRes,rRes] = await Promise.all([fetch(gviz(SHEET_HOLD)),fetch(gviz(SHEET_REAL))]);
-    if(!hRes.ok) throw new Error('持倉表讀取失敗（是否已設「知道連結者可檢視」？）');
-    const hRows = parseCSV(await hRes.text());
-    let realized = 0;
-    if(rRes.ok){ for(const r of parseCSV(await rRes.text())){ if(r[0] && r[0].indexOf('合計')>=0) realized = num(r[3]); } }
-
+    const r = await fetch('/api/portfolio',{cache:'no-store'});
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    const H = d.holdings||[];
     // 欄位：0代號 1名稱 2帳戶 3屬性 4股數 5成本 6幣別 7現價 8匯率 9市值TWD 10成本TWD 11損益TWD 12損益% 13備註
-    const holds = hRows.slice(1).filter(r => r[3]==='可交易' || r[3]==='鎖定');
-    let mv=0,cost=0,tradeMV=0,tradePnl=0,lockPnl=0,lockMV=0;
-    const items=[];
-    for(const r of holds){
-      const v=num(r[9]),c=num(r[10]),p=num(r[11]),prop=r[3];
+    const rows = H.slice(1).filter(x => x[3]==='可交易' || x[3]==='鎖定');
+    let mv=0,cost=0,tradePnl=0,lockPnl=0; const items=[];
+    for(const x of rows){
+      const v=num(x[9]),c=num(x[10]),p=num(x[11]);
       mv+=v;cost+=c;
-      if(prop==='可交易'){tradeMV+=v;tradePnl+=p;} else {lockMV+=v;lockPnl+=p;}
-      if(r[0]!=='CASH') items.push({name:r[1]||r[0],acct:r[2],prop,v,p,pct:num(r[12])});
+      if(x[3]==='可交易')tradePnl+=p; else lockPnl+=p;
+      if(x[0]!=='CASH') items.push({name:x[1]||x[0],acct:x[2],prop:x[3],v,p,pct:num(x[12])});
     }
     items.sort((a,b)=>b.v-a.v);
-    const unreal=mv-cost, total=unreal+realized, pct=cost?((total/cost)*100):0;
+    let realized=0;
+    for(const x of (d.realized||[])){ if(x[0] && String(x[0]).indexOf('合計')>=0) realized=num(x[3]); }
+    const unreal=mv-cost, total=unreal+realized, pct=cost?total/cost*100:0;
 
-    document.getElementById('ts').textContent = '更新：'+new Date().toLocaleString('zh-TW',{hour12:false});
-    document.getElementById('nw').textContent = fmt(mv);
-    const tp=document.getElementById('tpnl'); tp.textContent=signed(total); tp.className='v '+cls(total);
-    const tc=document.getElementById('tpct'); tc.textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%'; tc.className='v '+cls(total);
+    document.getElementById('ts').innerHTML='更新：'+new Date(d.ts).toLocaleString('zh-TW',{hour12:false})+'<span class="reload" onclick="load()">↻ 更新</span>';
+    document.getElementById('nw').textContent=fmt(mv);
+    const tp=document.getElementById('tpnl');tp.textContent=signed(total);tp.className='v '+cls(total);
+    const tc=document.getElementById('tpct');tc.textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%';tc.className='v '+cls(total);
     const setg=(id,val)=>{const e=document.getElementById(id);e.textContent=signed(val);e.className='v '+cls(val);};
-    setg('g-trade',tradePnl); setg('g-lock',lockPnl); setg('g-real',realized);
+    setg('g-trade',tradePnl);setg('g-lock',lockPnl);setg('g-real',realized);
 
     let html='<table><thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead><tbody>';
-    for(const it of items){
-      const g=it.p>=0?'g':'r';
-      html+=`<tr><td><span class="sym">${it.name}</span><span class="nm">${it.acct} · ${it.prop}</span></td><td>${fmt(it.v)}</td><td class="${cls(it.p)}">${signed(it.p)}</td><td><span class="pill ${g}">${(it.pct>=0?'+':'')+it.pct.toFixed(0)}%</span></td></tr>`;
-    }
+    for(const it of items){const g=it.p>=0?'g':'r';
+      html+=`<tr><td><span class="sym">${it.name}</span><span class="nm">${it.acct} · ${it.prop}</span></td><td>${fmt(it.v)}</td><td class="${cls(it.p)}">${signed(it.p)}</td><td><span class="pill ${g}">${(it.pct>=0?'+':'')+it.pct.toFixed(0)}%</span></td></tr>`;}
     html+=`</tbody><tfoot><tr><td>合計（含現金）</td><td>${fmt(mv)}</td><td class="${cls(unreal)}">${signed(unreal)}</td><td></td></tr></tfoot></table>`;
     document.getElementById('holdings').innerHTML=html;
   }catch(e){
     document.getElementById('holdings').innerHTML='';
-    const er=document.getElementById('err'); er.style.display='block';
-    er.textContent='⚠ '+e.message;
+    err.style.display='block'; err.textContent='⚠ '+e.message+'（若剛設定好，請確認 GOOGLE_SA_KEY 已設、兩份表已共用給 service account）';
   }
 }
+load();
 </script>
 </body>
 </html>
