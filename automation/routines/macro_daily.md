@@ -12,8 +12,8 @@
 
 ## 🔴 鐵則（不可違反，違反即為 bug）
 
-1. **只用 Gmail 寄信。** 不碰 GAS、Telegram、Slack、webhook、任何 secret/token。
-2. **輸出不得出現任何技術雜訊**：不要寫「secret 未設定」「GAS POST 失敗」「請到 Routines 設定 token」「manual_test」「透過 Slack 直發」之類。Cross 只要乾淨的市場+持倉內容。
+1. **三個乾淨管道**：① Gmail 寄完整 HTML 報 ② Slack 發每早摘要（市場概況 + BLUF + 動作 + 淨值 + dashboard 連結）③ dashboard 網頁。**不碰 GAS、Telegram、webhook、任何 secret/token。**
+2. **輸出不得出現任何技術雜訊**：不要寫「secret 未設定」「GAS POST 失敗」「請到 Routines 設定 token」「manual_test」之類。Slack/Email 只放乾淨的市場+持倉內容。emoji 用真 emoji（🟢🟡🔴☀️），**不要**用 `:large_yellow_circle:` 這種未渲染的 shortcode。
 3. **不要使用 Macro Score v3（g_score/val_adj/credit_adj/contra/base_score）那套舊算法。** 用下方四季框架即可。
 4. 唯一資料動作：web_search 抓總經、Google Drive 讀兩份個人 Sheet、Gmail 寄信。
 5. 非排程時間觸發：照常產出乾淨內容，**不要**在信裡放警告框；最多在 log（非信件）註記。
@@ -236,9 +236,32 @@ BLUF|<一句總結>||
 ```
 （值用當天實際數據；dashboard 解析此區塊，讀不到才退回 Macro 表。）
 
+## Step 7：Slack 每早摘要推播
+
+寄完 email 後，用 Slack 工具 `slack_send_message` 發一則**乾淨摘要**到 Cross 指定頻道
+（頻道 ID/名稱見排程設定；預設發 Cross 的 Slack DM 或 `#market` 頻道）。
+
+格式（Slack mrkdwn，**用真 emoji**，先結論）：
+```
+:chart_with_upwards_trend: *宏觀 × 持倉 — 2026/06/21（六）*
+*Regime：* ☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12%
+
+*關鍵燈號*　🟢 VIX 16.8　🔴 實質利率 2.2%　🟢 ISM 54　🔴 CPI 4.2%
+*Fed*　6/17 轉鷹，點陣圖示升息
+*BLUF*　過熱末段——CPI 創 3 年高、實質利率破 2%、Fed 轉鷹，估值三面受壓；續抱不加碼、留 12% 現金。
+*動作*　不加碼 · 留 12% 現金 · 新進場等紅燈解除
+
+*淨值*　NT$6,694,567（+61.5%）　|　未實現 +2,548,710　已實現 +0
+:bar_chart: 即時 dashboard → {{DASHBOARD_URL}}
+```
+
+- `{{DASHBOARD_URL}}` = Apps Script 部署後的網址（排程設定裡填）。未填則略過此行。
+- 摘要與 email/dashboard 數據一致（同一次抓取）。
+- 不放表格全文（那是 email 的事）；Slack 只要「掃一眼就懂 + 點連結看細節」。
+
 寄完在 Routine log 留一行：
 ```
-✅ 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜總市值 7.22M (+57%)｜Gmail 已寄｜待補 2 項
+✅ 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜淨值 6.69M (+61.5%)｜Gmail+Slack 已發
 ```
 
 ---
@@ -248,6 +271,7 @@ BLUF|<一句總結>||
 - 數據抓不到：該欄填 null + 在【待補】列名，**超過 3 個核心欄位 null** → 仍寄信但主旨加 `⚠資料不全`。
 - 持倉 Sheet 讀不到：仍寄總經段，持倉段標「Sheet 暫讀不到」，主旨加 `⚠持倉缺`。
 - Gmail 寄信失敗：等 5 秒重試 1 次；仍失敗 → 在 Routine log 標 ERROR（Cross 會在排程介面看到）。
+- Slack 發送失敗：log 標 ERROR，但 email 已寄就算當天成功（Slack 是加分管道）。
 - 算法/邏輯衝突：log 說明，用最後合理值，不要硬塞假數據。
 
 ## 資料來源權威序
