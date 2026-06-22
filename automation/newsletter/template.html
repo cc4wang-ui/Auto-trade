@@ -1,114 +1,100 @@
 <!DOCTYPE html>
 <!--
-  Cross 宏觀 × 持倉日報 — 電子報模板
-  routine 每早讀 Google Sheet + web_search 總經，套此模板 → Gmail HTML 信。
-  Vercel 即時網頁也複用同一套 CSS。
+  Cross 宏觀 × 持倉日報 — Gmail 安全版電子報模板
+  ⚠ 寫法限制（因為 Gmail 不支援）：不可用 CSS 變數、grid、flex、color-mix、position。
+    一律 table 佈局 + inline 樣式 + 純色 hex。routine 填下列 token。
 
-  Token 對照（routine 填值）：
-    {{DATE}}            日期，如「2026 年 6 月 21 日（六）」
-    {{REGIME_BADGE}}    如「☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12%」
-    {{NW_VALUE}}        總市值 TWD（千分位）
-    {{NW_PNL}}          未實現損益 TWD（帶 +/−）
-    {{NW_PCT}}          報酬率，如 +59.0%
-    {{PNL_CLASS}}       pos / neg（控制紅綠）
-    {{BLUF}}            一段總經結論
-    {{LIGHTS}}          燈號卡 HTML（VIX/實質利率/ISM/CPI/曲線/DXY/WTI/TAIEX）
-    {{FED}}             Fed 段落
-    {{HOLDINGS_ROWS}}   持倉 <tr>…</tr>（每檔一列，依市值排序，紅綠標色）
-    {{TOTAL_ROW}}       合計列
-    {{ACTIONS}}         今日動作 <li>…</li>
-    {{TODO}}            待補（需 dashboard）
+  Token：
+    {{DATE}}          2026 年 6 月 21 日（六）
+    {{REGIME_BADGE}}  ☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12%
+    {{REGIME_COLOR}}  徽章色 hex（🔴→#ff7a6b / 🟡→#f5c87a / 🟢→#3ddc97）
+    {{NW_VALUE}}      6,694,567
+    {{TOTAL_PNL}}     +2,548,710
+    {{NW_PCT}}        +47.5%
+    {{PNL_COLOR}}     #3ddc97(正) / #ff6b7d(負)
+    {{UNREALIZED}} {{REALIZED}} {{LOCKED_PNL}} {{TRADEABLE_PNL}}  已帶 +/− 的字串
+    {{LIGHTS_ROWS}}   市場燈號 <tr>…</tr>（格式見 routine）
+    {{FED}}           Fed 一句
+    {{BLUF}}          一段結論
+    {{ACTIONS}}       動作（用 ・ 或 <br> 分隔）
+    {{HOLDINGS_ROWS}} 持倉 <tr>…</tr>
+    {{TOTAL_MV}} {{TOTAL_UNREAL}}  合計
+    {{MACRO_BLOCK}}   隱形機讀區塊（dashboard 用）
 -->
-<html lang="zh-Hant">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cross 宏觀 × 持倉日報 — {{DATE}}</title>
-<style>
-  :root{--bg:#0b1020;--surface:#141b30;--surface2:#1b2440;--line:#26314f;--txt:#e8ecf6;--muted:#8b97b5;--gold:#f4c25a;--green:#34d399;--green-bg:rgba(52,211,153,.12);--red:#f87171;--red-bg:rgba(248,113,113,.12);--blue:#60a5fa}
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;line-height:1.55}
-  .wrap{max-width:680px;margin:0 auto;padding:20px 14px 60px}
-  .hero{background:linear-gradient(135deg,#1a2342,#0e1530);border:1px solid var(--line);border-radius:18px;padding:24px}
-  .date{color:var(--muted);font-size:13px}.h-title{font-size:22px;font-weight:800;margin:4px 0 16px}
-  .regime{display:inline-flex;gap:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.3);padding:6px 14px;border-radius:999px;font-weight:700;font-size:14px}
-  .nw{display:flex;gap:24px;flex-wrap:wrap;margin-top:18px}.nw .k{color:var(--muted);font-size:12px}.nw .v{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
-  .pos{color:var(--green)}.neg{color:var(--red)}
-  h2{font-size:15px;color:var(--gold);margin:30px 4px 12px;text-transform:uppercase}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
-  .bluf{border-left:3px solid var(--gold);padding-left:14px;color:#dbe2f3;font-size:14.5px}
-  .lights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
-  .light{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
-  .light .l{font-size:12px;color:var(--muted)}.light .r{font-size:17px;font-weight:700;display:flex;justify-content:space-between}
-  .tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px}.tag.g{background:var(--green-bg);color:var(--green)}.tag.r{background:var(--red-bg);color:var(--red)}.tag.y{background:rgba(244,194,90,.14);color:var(--gold)}
-  table{width:100%;border-collapse:collapse;font-size:13.5px}
-  th{text-align:right;color:var(--muted);font-size:11.5px;padding:8px 6px;border-bottom:1px solid var(--line)}
-  th:first-child,td:first-child{text-align:left}
-  td{padding:10px 6px;border-bottom:1px solid rgba(38,49,79,.5);font-variant-numeric:tabular-nums}
-  .sym{font-weight:700}.nm{color:var(--muted);font-size:11px;display:block}
-  .pill{font-size:12px;font-weight:700;padding:3px 8px;border-radius:7px;display:inline-block;min-width:62px;text-align:right}.pill.g{background:var(--green-bg);color:var(--green)}.pill.r{background:var(--red-bg);color:var(--red)}
-  tfoot td{border-top:2px solid var(--line);font-weight:800;font-size:14px}
-  .fed{background:linear-gradient(135deg,rgba(96,165,250,.1),rgba(96,165,250,.02));border:1px solid rgba(96,165,250,.25);margin-top:14px}.fed b{color:var(--blue)}
-  ul.act{list-style:none}ul.act li{padding:7px 0 7px 24px;position:relative;font-size:14px}ul.act li::before{content:"▸";position:absolute;left:6px;color:var(--gold)}
-  .todo{color:var(--muted);font-size:13px;margin-top:12px}
-  .foot{color:var(--muted);font-size:11.5px;margin-top:26px;text-align:center;line-height:1.7}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="hero">
-    <div class="date">{{DATE}} · 早晨宏觀 × 持倉日報</div>
-    <div class="h-title">早安 Cross ☕</div>
-    <div class="regime">{{REGIME_BADGE}}</div>
-    <div class="nw">
-      <div><div class="k">總市值 (TWD)</div><div class="v">{{NW_VALUE}}</div></div>
-      <div><div class="k">總損益 ({{NW_PCT}})</div><div class="v {{PNL_CLASS}}">{{TOTAL_PNL}}</div></div>
-    </div>
-    <div class="nw" style="margin-top:10px;font-size:13px">
-      <div><div class="k">未實現</div><div class="v" style="font-size:16px">{{UNREALIZED}}</div></div>
-      <div><div class="k">已實現</div><div class="v" style="font-size:16px">{{REALIZED}}</div></div>
-      <div><div class="k">🔒 鎖定</div><div class="v" style="font-size:16px">{{LOCKED_PNL}}</div></div>
-      <div><div class="k">🎚 可交易</div><div class="v" style="font-size:16px">{{TRADEABLE_PNL}}</div></div>
-    </div>
-  </div>
+<html>
+<body style="margin:0;padding:0;background:#070b16;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#070b16;">
+<tr><td align="center" style="padding:20px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;font-family:-apple-system,'Segoe UI','PingFang TC','Noto Sans TC',Arial,sans-serif;color:#eef2fb;">
 
-  <h2>① 總經 Regime</h2>
-  <div class="card">
-    <p class="bluf">{{BLUF}}</p>
-    <div class="lights">{{LIGHTS}}</div>
-    <div class="fed card">{{FED}}</div>
-  </div>
+  <!-- HERO -->
+  <tr><td style="background:#0f1730;border:1px solid rgba(255,255,255,0.10);border-radius:20px;padding:26px;">
+    <div style="font-size:12px;color:#8a96b4;letter-spacing:.3px;">{{DATE}} · 早晨宏觀 × 持倉</div>
+    <div style="font-size:22px;font-weight:800;margin:6px 0 14px;">早安 Cross ☕</div>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td
+      style="background:rgba(245,200,122,0.14);border:1px solid {{REGIME_COLOR}};color:{{REGIME_COLOR}};font-size:13px;font-weight:700;padding:7px 14px;border-radius:999px;">
+      {{REGIME_BADGE}}</td></tr></table>
+    <div style="font-size:12px;color:#8a96b4;margin:20px 0 2px;">總資產淨值 (TWD)</div>
+    <div style="font-size:40px;font-weight:800;letter-spacing:-1px;line-height:1.05;">NT$ {{NW_VALUE}}</div>
+    <div style="margin-top:10px;"><span style="background:rgba(255,255,255,0.06);color:{{PNL_COLOR}};font-size:15px;font-weight:800;padding:5px 12px;border-radius:10px;">{{TOTAL_PNL}}　{{NW_PCT}}</span></div>
+  </td></tr>
+  <tr><td style="height:14px;"></td></tr>
 
-  <h2>② 持倉 × 即時損益</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead>
-      <tbody>{{HOLDINGS_ROWS}}</tbody>
-      <tfoot>{{TOTAL_ROW}}</tfoot>
+  <!-- P&L LAYERS -->
+  <tr><td>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td width="25%" style="padding:4px;"><table role="presentation" width="100%" style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:14px;"><tr><td style="padding:13px;">
+        <div style="font-size:11px;color:#8a96b4;">未實現</div><div style="font-size:16px;font-weight:800;margin-top:5px;">{{UNREALIZED}}</div></td></tr></table></td>
+      <td width="25%" style="padding:4px;"><table role="presentation" width="100%" style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:14px;"><tr><td style="padding:13px;">
+        <div style="font-size:11px;color:#8a96b4;">已實現</div><div style="font-size:16px;font-weight:800;margin-top:5px;">{{REALIZED}}</div></td></tr></table></td>
+      <td width="25%" style="padding:4px;"><table role="presentation" width="100%" style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:14px;"><tr><td style="padding:13px;">
+        <div style="font-size:11px;color:#8a96b4;">🔒 鎖定</div><div style="font-size:16px;font-weight:800;margin-top:5px;">{{LOCKED_PNL}}</div></td></tr></table></td>
+      <td width="25%" style="padding:4px;"><table role="presentation" width="100%" style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:14px;"><tr><td style="padding:13px;">
+        <div style="font-size:11px;color:#8a96b4;">🎚 可交易</div><div style="font-size:16px;font-weight:800;margin-top:5px;">{{TRADEABLE_PNL}}</div></td></tr></table></td>
+    </tr></table>
+  </td></tr>
+
+  <!-- MARKET REGIME -->
+  <tr><td style="padding:26px 4px 10px;font-size:13px;font-weight:800;color:#f5c87a;letter-spacing:1.5px;">① 市場 REGIME</td></tr>
+  <tr><td style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">{{LIGHTS_ROWS}}</table>
+    <div style="margin-top:14px;padding:12px 14px;background:#10203f;border:1px solid rgba(106,168,255,0.25);border-radius:12px;font-size:13px;color:#cdd6ee;"><b style="color:#6aa8ff;">🏛 Fed</b>　{{FED}}</div>
+    <div style="margin-top:13px;font-size:14px;color:#dde4f5;border-left:3px solid {{REGIME_COLOR}};padding-left:13px;">{{BLUF}}</div>
+    <div style="margin-top:12px;font-size:13px;color:#cdd6ee;"><b style="color:#f5c87a;">動作</b>　{{ACTIONS}}</div>
+  </td></tr>
+
+  <!-- HOLDINGS -->
+  <tr><td style="padding:26px 4px 10px;font-size:13px;font-weight:800;color:#f5c87a;letter-spacing:1.5px;">② 持倉 × 即時損益</td></tr>
+  <tr><td style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:6px 14px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13.5px;">
+      <tr style="color:#8a96b4;font-size:11px;">
+        <td style="padding:8px 0;text-align:left;">標的</td><td style="padding:8px 0;text-align:right;">市值</td><td style="padding:8px 0;text-align:right;">損益</td><td style="padding:8px 0;text-align:right;">%</td></tr>
+      {{HOLDINGS_ROWS}}
+      <tr><td style="padding:11px 0 4px;border-top:2px solid rgba(255,255,255,0.12);font-weight:800;">合計</td>
+        <td style="padding:11px 0 4px;border-top:2px solid rgba(255,255,255,0.12);text-align:right;font-weight:800;">{{TOTAL_MV}}</td>
+        <td style="padding:11px 0 4px;border-top:2px solid rgba(255,255,255,0.12);text-align:right;font-weight:800;color:{{PNL_COLOR}};">{{TOTAL_UNREAL}}</td>
+        <td style="border-top:2px solid rgba(255,255,255,0.12);"></td></tr>
     </table>
-  </div>
+  </td></tr>
 
-  <h2>③ 今日動作</h2>
-  <div class="card">
-    <ul class="act">{{ACTIONS}}</ul>
-    <p class="todo">📋 <b>待補（需 dashboard）</b>：{{TODO}}</p>
-  </div>
-
-  <h2>📂 資料來源 — 要更新點這裡</h2>
-  <div class="card">
-    <table>
-      <tbody>
-        <tr><td><span class="sym">🟢 持倉 / 未實現</span><span class="nm">改股數·成本·選擇權現價</span></td><td style="text-align:right"><a href="https://docs.google.com/spreadsheets/d/1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE/edit" style="color:#60a5fa;text-decoration:none">開啟持倉表 ↗</a></td></tr>
-        <tr><td><span class="sym">🟢 已實現損益</span><span class="nm">賣出 / 配息落袋逐筆記</span></td><td style="text-align:right"><a href="https://docs.google.com/spreadsheets/d/1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM/edit" style="color:#60a5fa;text-decoration:none">開啟已實現表 ↗</a></td></tr>
-        <tr><td><span class="sym">⚙️ 股價 / 匯率</span><span class="nm">GOOGLEFINANCE 即時(免手動)</span></td><td style="text-align:right;color:var(--muted)">自動</td></tr>
-        <tr><td><span class="sym">⚙️ 總經數據</span><span class="nm">FRED · ISM · CME · TWSE · web_search</span></td><td style="text-align:right;color:var(--muted)">自動</td></tr>
-      </tbody>
+  <!-- DATA SOURCES -->
+  <tr><td style="padding:26px 4px 10px;font-size:13px;font-weight:800;color:#f5c87a;letter-spacing:1.5px;">📂 資料來源 · 要更新點這裡</td></tr>
+  <tr><td style="background:#0f1730;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:6px 16px;font-size:14px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.07);">🟢 持倉 / 未實現<br><span style="font-size:11px;color:#8a96b4;">改股數 · 成本 · 選擇權現價</span></td>
+          <td style="padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.07);text-align:right;"><a href="https://docs.google.com/spreadsheets/d/1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE/edit" style="color:#6aa8ff;text-decoration:none;">開啟 ↗</a></td></tr>
+      <tr><td style="padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.07);">🟢 已實現損益<br><span style="font-size:11px;color:#8a96b4;">賣出 / 配息逐筆記</span></td>
+          <td style="padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.07);text-align:right;"><a href="https://docs.google.com/spreadsheets/d/1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM/edit" style="color:#6aa8ff;text-decoration:none;">開啟 ↗</a></td></tr>
+      <tr><td style="padding:11px 0;">⚙️ 股價 / 匯率<br><span style="font-size:11px;color:#8a96b4;">GOOGLEFINANCE 即時</span></td>
+          <td style="padding:11px 0;text-align:right;color:#566184;">自動</td></tr>
     </table>
-  </div>
+  </td></tr>
 
-  <div class="foot">
-    🤖 由 Claude 排程每早 07:00 自動產生 · 你只需維護上面兩份 🟢 試算表
-  </div>
-</div>
+  <tr><td style="padding:24px 0;text-align:center;font-size:11px;color:#566184;line-height:1.8;">
+    🤖 由 Claude 排程每早 07:00 自動產生 · 你只需維護兩份 🟢 試算表</td></tr>
+
+</table>
+</td></tr></table>
+{{MACRO_BLOCK}}
 </body>
 </html>

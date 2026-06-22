@@ -185,18 +185,36 @@ fileId = 1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM   # Cross — 已實現損
 
 讀 `automation/newsletter/template.html`，把 token 換成今天的值：
 
-| Token | 來源 |
-|-------|------|
-| `{{DATE}}` `{{REGIME_BADGE}}` `{{BLUF}}` `{{LIGHTS}}` `{{FED}}` `{{ACTIONS}}` `{{TODO}}` | Step 2–5 總經 |
-| `{{NW_VALUE}}` 總市值、`{{UNREALIZED}}` 未實現、`{{REALIZED}}` 已實現、`{{TOTAL_PNL}}` 總損益、`{{NW_PCT}}` 報酬率 | Step 5.5 |
-| `{{LOCKED_PNL}}` 🔒鎖定損益、`{{TRADEABLE_PNL}}` 🎚可交易損益 | Step 5.5 分組小計 |
-| `{{HOLDINGS_ROWS}}` 持倉列、`{{TOTAL_ROW}}` 合計列、`{{PNL_CLASS}}` pos/neg | Step 5.5 |
+> ⚠ 這是 **Gmail 安全模板**：值用純文字，**不要**動 inline 樣式。顏色只透過 `{{*_COLOR}}` token 給 hex。
 
-- 損益為正 → `PNL_CLASS=pos`（綠）、負 → `neg`（紅）；每列 pill 同理 `g`/`r`。
+| Token | 值 |
+|-------|------|
+| `{{DATE}}` | 2026 年 6 月 21 日（六）|
+| `{{REGIME_BADGE}}` | ☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12% |
+| `{{REGIME_COLOR}}` | 🔴→`#ff7a6b`／🟡→`#f5c87a`／🟢→`#3ddc97` |
+| `{{NW_VALUE}}` | 千分位總市值，如 `6,694,567` |
+| `{{TOTAL_PNL}}` `{{NW_PCT}}` | `+2,548,710` / `+47.5%` |
+| `{{PNL_COLOR}}` | 正→`#3ddc97`，負→`#ff6b7d` |
+| `{{UNREALIZED}}` `{{REALIZED}}` `{{LOCKED_PNL}}` `{{TRADEABLE_PNL}}` | 帶 +/− 千分位字串 |
+| `{{FED}}` `{{BLUF}}` `{{ACTIONS}}` | Step 2–5 文字 |
+| `{{TOTAL_MV}}` `{{TOTAL_UNREAL}}` | 合計市值 / 未實現 |
+
+**`{{LIGHTS_ROWS}}`**（市場燈號，每個指標一列；emoji 用 🟢/🟡/🔴）：
+```
+<tr><td style="padding:7px 0;color:#8a96b4;">VIX<span style="color:#566184;font-size:11px;"> · &lt;28</span></td><td style="padding:7px 0;text-align:right;font-weight:700;">16.8 🟢</td></tr>
+```
+（VIX/實質利率/ISM/CPI/殖利率曲線/DXY/WTI/TAIEX 各一列。）
+
+**`{{HOLDINGS_ROWS}}`**（依市值排序，正損益色 `#3ddc97`、負 `#ff6b7d`）：
+```
+<tr><td style="padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);"><b>2330 台積電</b><br><span style="font-size:11px;color:#8a96b4;">國泰-鎖倉 · 🔒鎖定</span></td><td style="padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;">2,453,380</td><td style="padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;color:#3ddc97;">+1,463,884</td><td style="padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);text-align:right;color:#3ddc97;">+148%</td></tr>
+```
+
 - 寄信（Gmail HTML）：
   - 收件人：`cc4wang@gmail.com`
-  - 主旨：`【宏觀×持倉】2026-06-21 — ☀️夏 Overheating 🔴紅燈 ｜淨值 +57%`
+  - 主旨：`【宏觀×持倉】2026-06-21 — ☀️夏 Overheating 🔴紅燈 ｜淨值 +47.5%`
   - 內文：填好的 template.html（HTML 信）
+  - ⚠ 信中**不得**出現任何 secret/GAS/Telegram/Slack/技術錯誤字樣（見鐵則）。
 
 **在 HTML 信末端附一段隱形機器可讀區塊**（Cross 看不到，即時網頁 dashboard 會讀它來顯示市場區塊）。
 格式固定，每行 `項目|數值|燈號|說明`：
