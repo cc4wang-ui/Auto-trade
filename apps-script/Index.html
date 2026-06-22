@@ -9,11 +9,19 @@
   body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;line-height:1.55}
   .wrap{max-width:720px;margin:0 auto;padding:20px 14px 60px}
   .hero{background:linear-gradient(135deg,#1a2342,#0e1530);border:1px solid var(--line);border-radius:18px;padding:24px}
-  .date{color:var(--muted);font-size:13px}.h-title{font-size:22px;font-weight:800;margin:4px 0 16px}
+  .date{color:var(--muted);font-size:13px}.h-title{font-size:22px;font-weight:800;margin:4px 0 12px}
+  .regime{display:inline-flex;gap:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.3);padding:6px 14px;border-radius:999px;font-weight:700;font-size:14px;margin-bottom:16px}
   .nw{display:flex;gap:22px;flex-wrap:wrap}.nw .k{color:var(--muted);font-size:12px}.nw .v{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
   .pos{color:var(--green)}.neg{color:var(--red)}
   h2{font-size:15px;color:var(--gold);margin:28px 4px 12px;text-transform:uppercase}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .lights{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .light{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .light .l{font-size:12px;color:var(--muted)}.light .r{font-size:16px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline}
+  .light .note{font-size:11px;color:var(--muted)}
+  .bluf{border-left:3px solid var(--gold);padding-left:14px;color:#dbe2f3;font-size:14px;margin-top:14px}
+  .fedline{margin-top:12px;font-size:13px;color:#cdd6ee}.fedline b{color:var(--blue)}
+  .act{margin-top:10px;font-size:13px;color:#cdd6ee}
   table{width:100%;border-collapse:collapse;font-size:13.5px}
   th{text-align:right;color:var(--muted);font-size:11.5px;padding:8px 6px;border-bottom:1px solid var(--line)}
   th:first-child,td:first-child{text-align:left}
@@ -21,22 +29,22 @@
   .sym{font-weight:700}.nm{color:var(--muted);font-size:11px;display:block}
   .pill{font-size:12px;font-weight:700;padding:3px 8px;border-radius:7px;display:inline-block;min-width:56px;text-align:right}.pill.g{background:var(--green-bg);color:var(--green)}.pill.r{background:var(--red-bg);color:var(--red)}
   tfoot td{border-top:2px solid var(--line);font-weight:800}
-  .grp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px}
+  .grp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .gbox{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:12px}
   .gbox .k{font-size:11px;color:var(--muted)}.gbox .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
   a.src{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(38,49,79,.5);color:var(--txt);text-decoration:none}
   a.src:last-child{border:none} a.src .go{color:var(--blue)}
   .foot{color:var(--muted);font-size:11.5px;margin-top:24px;text-align:center;line-height:1.7}
-  .muted{color:var(--muted)} .loading{text-align:center;color:var(--muted);padding:30px}
-  .warn{background:rgba(244,194,90,.08);border:1px dashed rgba(244,194,90,.4);border-radius:10px;padding:10px 13px;font-size:12px;color:#d8c79e;margin-top:12px}
+  .muted{color:var(--muted)}
   .reload{float:right;background:var(--surface2);border:1px solid var(--line);color:var(--blue);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="hero">
-    <div class="date" id="ts">讀取中…<span class="reload" id="rl">↻ 更新</span></div>
-    <div class="h-title">即時持倉 💹</div>
+    <div class="date" id="ts"><span class="reload" id="rl">↻ 更新</span></div>
+    <div id="regime" class="regime">—</div>
+    <div class="h-title">即時持倉 × 市場 💹</div>
     <div class="nw">
       <div><div class="k">總市值 (TWD)</div><div class="v" id="nw">—</div></div>
       <div><div class="k">總損益</div><div class="v" id="tpnl">—</div></div>
@@ -44,78 +52,91 @@
     </div>
   </div>
 
-  <h2>損益分層</h2>
+  <h2>① 市場 Regime</h2>
+  <div class="card">
+    <div class="lights" id="lights"></div>
+    <div class="fedline" id="fed"></div>
+    <div class="bluf" id="bluf"></div>
+    <div class="act" id="act"></div>
+  </div>
+
+  <h2>② 損益分層</h2>
   <div class="grp">
     <div class="gbox"><div class="k">🎚 可交易</div><div class="v" id="g-trade">—</div></div>
     <div class="gbox"><div class="k">🔒 鎖定</div><div class="v" id="g-lock">—</div></div>
     <div class="gbox"><div class="k">💰 已實現</div><div class="v" id="g-real">—</div></div>
   </div>
 
-  <h2>持倉明細</h2>
-  <div class="card"><div id="holdings" class="loading">讀取中…</div></div>
+  <h2>③ 持倉明細</h2>
+  <div class="card"><div id="holdings"></div></div>
 
   <h2>📂 資料來源 — 要更新點這裡</h2>
   <div class="card">
     <a class="src" href="https://docs.google.com/spreadsheets/d/1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE/edit" target="_blank"><span>🟢 持倉 / 未實現<span class="nm">改股數·成本·選擇權現價</span></span><span class="go">開啟 ↗</span></a>
     <a class="src" href="https://docs.google.com/spreadsheets/d/1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM/edit" target="_blank"><span>🟢 已實現損益<span class="nm">賣出 / 配息逐筆記</span></span><span class="go">開啟 ↗</span></a>
+    <a class="src" href="https://docs.google.com/spreadsheets/d/15jTuymkg5Rv-K7-6lVS8LWP7iZ_NYZmdkY6mbRfnBk0/edit" target="_blank"><span>🟡 市場 Macro<span class="nm">每早 routine 自動更新</span></span><span class="go">開啟 ↗</span></a>
     <a class="src"><span>⚙️ 股價 / 匯率<span class="nm">GOOGLEFINANCE 即時</span></span><span class="muted">自動</span></a>
-    <a class="src"><span>⚙️ 總經數據<span class="nm">每早 Gmail 電子報為準</span></span><span class="muted">自動</span></a>
   </div>
 
-  <div class="warn" id="err" style="display:none"></div>
-  <div class="foot">後端同帳號私密讀取你的 Google Sheet · 部署設「僅限我自己」只有你看得到<br>🤖 Cross 私人 dashboard · 按 ↻ 即時更新</div>
+  <div class="foot">後端同帳號私密讀取你的 Google Sheet · 部署設「僅限我自己」只有你看得到<br>🤖 Cross 私人 dashboard · 按 ↻ 重新整理</div>
 </div>
 
 <script>
-const num = s => { const n=parseFloat(String(s==null?'':s).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; };
-const fmt = n => Math.round(n).toLocaleString('en-US');
-const signed = n => (n>=0?'+':'−')+fmt(Math.abs(n));
-const cls = n => n>=0?'pos':'neg';
+var DATA = <?!= payload ?>;
+
+var num = function(s){ var n=parseFloat(String(s==null?'':s).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; };
+var fmt = function(n){ return Math.round(n).toLocaleString('en-US'); };
+var signed = function(n){ return (n>=0?'+':'−')+fmt(Math.abs(n)); };
+var cls = function(n){ return n>=0?'pos':'neg'; };
+var esc = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); };
 
 function render(d){
-  const err=document.getElementById('err'); err.style.display='none';
-  try{
-    const H = d.holdings||[];
-    // 欄位：0代號 1名稱 2帳戶 3屬性 4股數 5成本 6幣別 7現價 8匯率 9市值TWD 10成本TWD 11損益TWD 12損益% 13備註
-    const rows = H.slice(1).filter(x => x[3]==='可交易' || x[3]==='鎖定');
-    let mv=0,cost=0,tradePnl=0,lockPnl=0; const items=[];
-    for(const x of rows){
-      const v=num(x[9]),c=num(x[10]),p=num(x[11]);
-      mv+=v;cost+=c;
-      if(x[3]==='可交易')tradePnl+=p; else lockPnl+=p;
-      if(x[0]!=='CASH') items.push({name:x[1]||x[0],acct:x[2],prop:x[3],v,p,pct:num(x[12])*100});
-    }
-    items.sort((a,b)=>b.v-a.v);
-    let realized=0;
-    for(const x of (d.realized||[])){ if(x[0] && String(x[0]).indexOf('合計')>=0) realized=num(x[3]); }
-    const unreal=mv-cost, total=unreal+realized, pct=cost?total/cost*100:0;
+  // ── 市場 Macro ──
+  var m = {};
+  (d.macro||[]).forEach(function(r){ if(r[0]) m[String(r[0]).trim()] = {v:r[1], light:r[2], note:r[3]}; });
+  if(m['Regime']){
+    var rg=document.getElementById('regime');
+    rg.textContent=(m['Regime'].light||'')+' '+(m['Regime'].v||'')+(m['Regime'].note?' · '+m['Regime'].note:'');
+  }
+  var order=['VIX','實質利率','ISM','CPI','殖利率曲線','DXY','WTI','TAIEX'];
+  var lh='';
+  order.forEach(function(k){ if(m[k]) lh+='<div class="light"><div class="l">'+esc(k)+'</div><div class="r"><span>'+esc(m[k].v)+'</span><span>'+esc(m[k].light)+'</span></div><div class="note">'+esc(m[k].note)+'</div></div>'; });
+  document.getElementById('lights').innerHTML=lh;
+  document.getElementById('fed').innerHTML = m['Fed'] ? ('<b>🏛 Fed</b>　'+esc(m['Fed'].v)+(m['Fed'].note?'（'+esc(m['Fed'].note)+'）':'')) : '';
+  document.getElementById('bluf').textContent = m['BLUF'] ? m['BLUF'].v : '';
+  document.getElementById('act').innerHTML = m['動作'] ? ('<b>動作：</b>'+esc(m['動作'].v)) : '';
 
-    document.getElementById('ts').innerHTML='更新：'+new Date(d.ts).toLocaleString('zh-TW',{hour12:false})+'<span class="reload" id="rl">↻ 更新</span>';
-    document.getElementById('rl').addEventListener('click',load);
-    document.getElementById('nw').textContent=fmt(mv);
-    const tp=document.getElementById('tpnl');tp.textContent=signed(total);tp.className='v '+cls(total);
-    const tc=document.getElementById('tpct');tc.textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%';tc.className='v '+cls(total);
-    const setg=(id,val)=>{const e=document.getElementById(id);e.textContent=signed(val);e.className='v '+cls(val);};
-    setg('g-trade',tradePnl);setg('g-lock',lockPnl);setg('g-real',realized);
+  // ── 持倉 ──
+  var H=d.holdings||[];
+  var rows=H.slice(1).filter(function(x){return x[3]==='可交易'||x[3]==='鎖定';});
+  var mv=0,cost=0,tradePnl=0,lockPnl=0,items=[];
+  rows.forEach(function(x){
+    var v=num(x[9]),c=num(x[10]),p=num(x[11]);
+    mv+=v;cost+=c;
+    if(x[3]==='可交易')tradePnl+=p; else lockPnl+=p;
+    if(x[0]!=='CASH'){var ci=v-p;items.push({name:x[1]||x[0],acct:x[2],prop:x[3],v:v,p:p,pct:ci?p/ci*100:0});}
+  });
+  items.sort(function(a,b){return b.v-a.v;});
+  var realized=0;
+  (d.realized||[]).forEach(function(x){ if(x[0]&&String(x[0]).indexOf('合計')>=0) realized=num(x[3]); });
+  var unreal=mv-cost, total=unreal+realized, pct=cost?total/cost*100:0;
 
-    let html='<table><thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead><tbody>';
-    for(const it of items){const g=it.p>=0?'g':'r';
-      html+='<tr><td><span class="sym">'+it.name+'</span><span class="nm">'+it.acct+' · '+it.prop+'</span></td><td>'+fmt(it.v)+'</td><td class="'+cls(it.p)+'">'+signed(it.p)+'</td><td><span class="pill '+g+'">'+(it.pct>=0?'+':'')+it.pct.toFixed(0)+'%</span></td></tr>';}
-    html+='</tbody><tfoot><tr><td>合計（含現金）</td><td>'+fmt(mv)+'</td><td class="'+cls(unreal)+'">'+signed(unreal)+'</td><td></td></tr></tfoot></table>';
-    document.getElementById('holdings').innerHTML=html;
-  }catch(e){ onErr(e); }
+  document.getElementById('ts').innerHTML='更新：'+esc(d.ts)+'<span class="reload" id="rl">↻ 更新</span>';
+  document.getElementById('rl').addEventListener('click',function(){location.reload();});
+  document.getElementById('nw').textContent=fmt(mv);
+  var tp=document.getElementById('tpnl');tp.textContent=signed(total);tp.className='v '+cls(total);
+  var tc=document.getElementById('tpct');tc.textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%';tc.className='v '+cls(total);
+  var setg=function(id,val){var e=document.getElementById(id);e.textContent=signed(val);e.className='v '+cls(val);};
+  setg('g-trade',tradePnl);setg('g-lock',lockPnl);setg('g-real',realized);
+
+  var html='<table><thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead><tbody>';
+  items.forEach(function(it){var g=it.p>=0?'g':'r';
+    html+='<tr><td><span class="sym">'+esc(it.name)+'</span><span class="nm">'+esc(it.acct)+' · '+esc(it.prop)+'</span></td><td>'+fmt(it.v)+'</td><td class="'+cls(it.p)+'">'+signed(it.p)+'</td><td><span class="pill '+g+'">'+(it.pct>=0?'+':'')+it.pct.toFixed(0)+'%</span></td></tr>';});
+  html+='</tbody><tfoot><tr><td>合計（含現金）</td><td>'+fmt(mv)+'</td><td class="'+cls(unreal)+'">'+signed(unreal)+'</td><td></td></tr></tfoot></table>';
+  document.getElementById('holdings').innerHTML=html;
 }
-function onErr(e){
-  document.getElementById('holdings').innerHTML='';
-  const err=document.getElementById('err'); err.style.display='block';
-  err.textContent='⚠ '+(e&&e.message?e.message:e);
-}
-function load(){
-  document.getElementById('holdings').innerHTML='<div class="loading">讀取中…</div>';
-  google.script.run.withSuccessHandler(render).withFailureHandler(onErr).getData();
-}
-document.getElementById('rl').addEventListener('click',load);
-load();
+document.getElementById('rl').addEventListener('click',function(){location.reload();});
+render(DATA);
 </script>
 </body>
 </html>

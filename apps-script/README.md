@@ -30,6 +30,10 @@
 ## 資料來源（網頁內也有連結）
 - 持倉：`1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE`
 - 已實現：`1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM`
+- 市場 Macro：`15jTuymkg5Rv-K7-6lVS8LWP7iZ_NYZmdkY6mbRfnBk0`（種子；每早 routine 的 email 會覆蓋更新）
+
+> 授權時會多要一個 **Gmail 唯讀** 權限：dashboard 讀你每早那封宏觀信裡的市場數據區塊來顯示「市場 Regime」。
+> 不想給 Gmail 權限也行——它會自動退回讀 Macro 表（但就不會每天自動更新市場數據）。
 
 ---
 > Vercel 版（`dashboard/`、`api/`）保留備查但不再使用。

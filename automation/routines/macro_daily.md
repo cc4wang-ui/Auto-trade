@@ -188,6 +188,26 @@ fileId = 1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM   # Cross — 已實現損
   - 主旨：`【宏觀×持倉】2026-06-21 — ☀️夏 Overheating 🔴紅燈 ｜淨值 +57%`
   - 內文：填好的 template.html（HTML 信）
 
+**在 HTML 信末端附一段隱形機器可讀區塊**（Cross 看不到，即時網頁 dashboard 會讀它來顯示市場區塊）。
+格式固定，每行 `項目|數值|燈號|說明`：
+```
+<!--MACRO
+Regime|☀️ 夏 Overheating|🔴|建議現金12%
+VIX|16.8|🟢|<28
+實質利率|2.2%|🔴|>2%壓估值
+ISM|54|🟢|擴張
+CPI|4.2%|🔴|3年高
+殖利率曲線|+0.24|🟢|未倒掛
+DXY|100.8|🟡|走強
+WTI|76|🟡|地緣
+TAIEX|46465||近ATH
+Fed|6/17轉鷹 點陣圖示升息|🔴|
+BLUF|<一句總結>||
+動作|<分號分隔的動作>||
+-->
+```
+（值用當天實際數據；dashboard 解析此區塊，讀不到才退回 Macro 表。）
+
 寄完在 Routine log 留一行：
 ```
 ✅ 完成｜session=tw_morning｜Regime=夏 Overheating｜燈號=🔴｜總市值 7.22M (+57%)｜Gmail 已寄｜待補 2 項
