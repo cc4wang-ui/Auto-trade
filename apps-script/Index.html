@@ -4,136 +4,237 @@
 <base target="_top">
 <meta charset="UTF-8">
 <style>
-  :root{--bg:#0b1020;--surface:#141b30;--surface2:#1b2440;--line:#26314f;--txt:#e8ecf6;--muted:#8b97b5;--gold:#f4c25a;--green:#34d399;--green-bg:rgba(52,211,153,.12);--red:#f87171;--red-bg:rgba(248,113,113,.12);--blue:#60a5fa}
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;line-height:1.55}
-  .wrap{max-width:720px;margin:0 auto;padding:20px 14px 60px}
-  .hero{background:linear-gradient(135deg,#1a2342,#0e1530);border:1px solid var(--line);border-radius:18px;padding:24px}
-  .date{color:var(--muted);font-size:13px}.h-title{font-size:22px;font-weight:800;margin:4px 0 12px}
-  .regime{display:inline-flex;gap:8px;background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,.3);padding:6px 14px;border-radius:999px;font-weight:700;font-size:14px;margin-bottom:16px}
-  .nw{display:flex;gap:22px;flex-wrap:wrap}.nw .k{color:var(--muted);font-size:12px}.nw .v{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
-  .pos{color:var(--green)}.neg{color:var(--red)}
-  h2{font-size:15px;color:var(--gold);margin:28px 4px 12px;text-transform:uppercase}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
-  .lights{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .light{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
-  .light .l{font-size:12px;color:var(--muted)}.light .r{font-size:16px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline}
-  .light .note{font-size:11px;color:var(--muted)}
-  .bluf{border-left:3px solid var(--gold);padding-left:14px;color:#dbe2f3;font-size:14px;margin-top:14px}
-  .fedline{margin-top:12px;font-size:13px;color:#cdd6ee}.fedline b{color:var(--blue)}
-  .act{margin-top:10px;font-size:13px;color:#cdd6ee}
-  table{width:100%;border-collapse:collapse;font-size:13.5px}
-  th{text-align:right;color:var(--muted);font-size:11.5px;padding:8px 6px;border-bottom:1px solid var(--line)}
-  th:first-child,td:first-child{text-align:left}
-  td{padding:9px 6px;border-bottom:1px solid rgba(38,49,79,.5);font-variant-numeric:tabular-nums}
-  .sym{font-weight:700}.nm{color:var(--muted);font-size:11px;display:block}
-  .pill{font-size:12px;font-weight:700;padding:3px 8px;border-radius:7px;display:inline-block;min-width:56px;text-align:right}.pill.g{background:var(--green-bg);color:var(--green)}.pill.r{background:var(--red-bg);color:var(--red)}
-  tfoot td{border-top:2px solid var(--line);font-weight:800}
-  .grp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-  .gbox{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:12px}
-  .gbox .k{font-size:11px;color:var(--muted)}.gbox .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
-  a.src{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(38,49,79,.5);color:var(--txt);text-decoration:none}
-  a.src:last-child{border:none} a.src .go{color:var(--blue)}
-  .foot{color:var(--muted);font-size:11.5px;margin-top:24px;text-align:center;line-height:1.7}
-  .muted{color:var(--muted)}
-  .reload{float:right;background:var(--surface2);border:1px solid var(--line);color:var(--blue);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer}
+  :root{
+    --bg:#070b16; --bg2:#0c1322; --surface:rgba(255,255,255,.035); --surfaceB:rgba(255,255,255,.08);
+    --txt:#eef2fb; --muted:#8a96b4; --faint:#566184;
+    --gold:#f5c87a; --green:#3ddc97; --red:#ff6b7d; --blue:#6aa8ff;
+    --accent:#ff8a5b; /* regime accent, set by JS */
+    --green-bg:rgba(61,220,151,.14); --red-bg:rgba(255,107,125,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,138,91,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(106,168,255,.10), transparent 55%),
+      var(--bg);
+    color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;
+    line-height:1.5;letter-spacing:.1px;min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 70px}
+  .tabular{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .pos{color:var(--green)}.neg{color:var(--red)}.muted{color:var(--muted)}
+
+  /* top bar */
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .brand{font-size:13px;color:var(--muted);letter-spacing:.4px}
+  .brand b{color:var(--txt);font-weight:700}
+  .refresh{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--surfaceB);
+    color:var(--blue);padding:7px 13px;border-radius:999px;font-size:12px;cursor:pointer;transition:.15s}
+  .refresh:active{transform:scale(.96)}
+
+  /* hero */
+  .hero{position:relative;background:linear-gradient(160deg, rgba(255,255,255,.06), rgba(255,255,255,.015));
+    border:1px solid var(--surfaceB);border-radius:24px;padding:26px 24px;overflow:hidden;
+    box-shadow:0 20px 50px -25px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06)}
+  .hero::before{content:"";position:absolute;inset:0;background:radial-gradient(420px 200px at 88% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%);pointer-events:none}
+  .regime{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;
+    background:color-mix(in srgb, var(--accent) 16%, transparent);
+    border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    color:color-mix(in srgb, var(--accent) 75%, white);padding:6px 13px;border-radius:999px;position:relative}
+  .hlabel{color:var(--muted);font-size:12.5px;margin:18px 0 4px;letter-spacing:.3px}
+  .hbig{font-size:46px;font-weight:800;letter-spacing:-1px;line-height:1;position:relative}
+  .hbig small{font-size:20px;font-weight:700;color:var(--muted);margin-right:4px}
+  .hsub{margin-top:8px;font-size:14px;color:var(--muted)}
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:10px;font-weight:800;font-size:15px;margin-top:12px}
+  .chip.pos{background:var(--green-bg);color:var(--green)}.chip.neg{background:var(--red-bg);color:var(--red)}
+  .hfull{font-size:12.5px;color:var(--faint);margin-top:10px}
+
+  /* allocation bar */
+  .alloc{display:flex;height:12px;border-radius:8px;overflow:hidden;margin-top:20px;background:rgba(255,255,255,.05)}
+  .alloc i{height:100%;display:block}
+  .alloc .s-lock{background:linear-gradient(90deg,#6aa8ff,#8f7bff)}
+  .alloc .s-trade{background:linear-gradient(90deg,#3ddc97,#27c2c2)}
+  .alloc .s-cash{background:linear-gradient(90deg,#f5c87a,#e0a24a)}
+  .leg{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+  .leg span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+
+  /* section heading */
+  .sec{display:flex;align-items:baseline;justify-content:space-between;margin:30px 6px 12px}
+  .sec h2{font-size:13px;font-weight:800;color:var(--gold);letter-spacing:1.5px;text-transform:uppercase}
+  .sec .hint{font-size:11px;color:var(--faint)}
+
+  .card{background:var(--surface);border:1px solid var(--surfaceB);border-radius:18px;padding:16px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+
+  /* P&L layer stats */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+  .stat{background:var(--surface);border:1px solid var(--surfaceB);border-radius:16px;padding:15px 14px;position:relative;overflow:hidden}
+  .stat .k{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .stat .v{font-size:18px;font-weight:800;margin-top:6px}
+  .stat .b{height:3px;border-radius:3px;margin-top:10px;background:rgba(255,255,255,.07);overflow:hidden}
+  .stat .b i{display:block;height:100%}
+
+  /* market regime */
+  .lights{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .light{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    background:var(--surface);border:1px solid var(--surfaceB);border-radius:13px;padding:11px 13px}
+  .light .l{font-size:12px;color:var(--muted)}
+  .light .lv{font-size:11px;color:var(--faint);margin-top:1px}
+  .light .r{font-size:18px;font-weight:800;display:flex;align-items:center;gap:7px}
+  .light .r .em{font-size:13px}
+  .fed{margin-top:14px;padding:13px 15px;border-radius:13px;background:linear-gradient(135deg,rgba(106,168,255,.12),rgba(106,168,255,.03));border:1px solid rgba(106,168,255,.22);font-size:13px}
+  .fed b{color:var(--blue)}
+  .bluf{margin-top:13px;font-size:14px;color:#dde4f5;border-left:3px solid var(--accent);padding:2px 0 2px 13px}
+  .act{margin-top:12px;font-size:13px;color:#cdd6ee}.act b{color:var(--gold)}
+
+  /* holdings */
+  .hold{position:relative;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:14px;margin-bottom:8px;
+    background:var(--surface);border:1px solid var(--surfaceB);overflow:hidden}
+  .hold .barbg{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(106,168,255,.14),rgba(106,168,255,0));z-index:0}
+  .hold>*{position:relative;z-index:1}
+  .hold .hl{flex:1;min-width:0}
+  .hold .hn{font-weight:700;font-size:15px}
+  .hold .ht{font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap}
+  .hold .htag{background:rgba(255,255,255,.06);border-radius:5px;padding:1px 6px}
+  .hold .hr{text-align:right;flex-shrink:0}
+  .hold .hmv{font-weight:700;font-size:14px}
+  .pillp{display:inline-block;margin-top:3px;font-size:12px;font-weight:800;padding:2px 8px;border-radius:8px}
+  .pillp.pos{background:var(--green-bg);color:var(--green)}.pillp.neg{background:var(--red-bg);color:var(--red)}
+  .holdtot{display:flex;justify-content:space-between;padding:14px 14px 4px;font-weight:800;font-size:15px}
+
+  /* sources */
+  .src{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:var(--txt)}
+  .src:last-child{border:none}.src .sn{font-size:11px;color:var(--muted);display:block;margin-top:2px;font-weight:400}
+  .src .st{font-weight:700;font-size:14px}.src .go{color:var(--blue);font-size:13px;font-weight:700}
+  .foot{color:var(--faint);font-size:11px;margin-top:26px;text-align:center;line-height:1.8}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="hero">
-    <div class="date" id="ts"><span class="reload" id="rl">↻ 更新</span></div>
-    <div id="regime" class="regime">—</div>
-    <div class="h-title">即時持倉 × 市場 💹</div>
-    <div class="nw">
-      <div><div class="k">總市值 (TWD)</div><div class="v" id="nw">—</div></div>
-      <div><div class="k">總損益</div><div class="v" id="tpnl">—</div></div>
-      <div><div class="k">報酬率</div><div class="v" id="tpct">—</div></div>
-    </div>
+  <div class="top">
+    <div class="brand">📈 <b>Cross</b> · 即時持倉 × 市場</div>
+    <div class="refresh" id="rl">↻ 更新</div>
   </div>
 
-  <h2>① 市場 Regime</h2>
+  <div class="hero" id="hero">
+    <div class="regime" id="regime">—</div>
+    <div class="hlabel">總資產淨值</div>
+    <div class="hbig tabular"><small>NT$</small><span id="nw">—</span></div>
+    <div id="pnlchip" class="chip pos">—</div>
+    <div class="hfull tabular" id="nwfull"></div>
+    <div class="alloc" id="alloc"></div>
+    <div class="leg" id="leg"></div>
+  </div>
+
+  <div class="sec"><h2>損益分層</h2><span class="hint">未實現 + 已實現</span></div>
+  <div class="stats">
+    <div class="stat"><div class="k">🎚 可交易</div><div class="v" id="g-trade">—</div><div class="b"><i id="b-trade"></i></div></div>
+    <div class="stat"><div class="k">🔒 鎖定</div><div class="v" id="g-lock">—</div><div class="b"><i id="b-lock"></i></div></div>
+    <div class="stat"><div class="k">💰 已實現</div><div class="v" id="g-real">—</div><div class="b"><i id="b-real"></i></div></div>
+  </div>
+
+  <div class="sec"><h2>市場 Regime</h2><span class="hint" id="mdate"></span></div>
   <div class="card">
     <div class="lights" id="lights"></div>
-    <div class="fedline" id="fed"></div>
+    <div class="fed" id="fed"></div>
     <div class="bluf" id="bluf"></div>
     <div class="act" id="act"></div>
   </div>
 
-  <h2>② 損益分層</h2>
-  <div class="grp">
-    <div class="gbox"><div class="k">🎚 可交易</div><div class="v" id="g-trade">—</div></div>
-    <div class="gbox"><div class="k">🔒 鎖定</div><div class="v" id="g-lock">—</div></div>
-    <div class="gbox"><div class="k">💰 已實現</div><div class="v" id="g-real">—</div></div>
-  </div>
+  <div class="sec"><h2>持倉明細</h2><span class="hint">依市值排序</span></div>
+  <div id="holdings"></div>
 
-  <h2>③ 持倉明細</h2>
-  <div class="card"><div id="holdings"></div></div>
-
-  <h2>📂 資料來源 — 要更新點這裡</h2>
+  <div class="sec"><h2>📂 資料來源 · 要更新點這裡</h2></div>
   <div class="card">
-    <a class="src" href="https://docs.google.com/spreadsheets/d/1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE/edit" target="_blank"><span>🟢 持倉 / 未實現<span class="nm">改股數·成本·選擇權現價</span></span><span class="go">開啟 ↗</span></a>
-    <a class="src" href="https://docs.google.com/spreadsheets/d/1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM/edit" target="_blank"><span>🟢 已實現損益<span class="nm">賣出 / 配息逐筆記</span></span><span class="go">開啟 ↗</span></a>
-    <a class="src" href="https://docs.google.com/spreadsheets/d/15jTuymkg5Rv-K7-6lVS8LWP7iZ_NYZmdkY6mbRfnBk0/edit" target="_blank"><span>🟡 市場 Macro<span class="nm">每早 routine 自動更新</span></span><span class="go">開啟 ↗</span></a>
-    <a class="src"><span>⚙️ 股價 / 匯率<span class="nm">GOOGLEFINANCE 即時</span></span><span class="muted">自動</span></a>
+    <a class="src" href="https://docs.google.com/spreadsheets/d/1j6B-QVHOQ-4n6dIbj5-Zc-laJmGooORPSf4VUGmWTxE/edit" target="_blank"><span class="st">🟢 持倉 / 未實現<span class="sn">改股數 · 成本 · 選擇權現價</span></span><span class="go">開啟 ↗</span></a>
+    <a class="src" href="https://docs.google.com/spreadsheets/d/1POxFcuegsTyYtgfi7RI_qpJX0fO66-314x-5679EBrM/edit" target="_blank"><span class="st">🟢 已實現損益<span class="sn">賣出 / 配息逐筆記</span></span><span class="go">開啟 ↗</span></a>
+    <a class="src" href="https://docs.google.com/spreadsheets/d/15jTuymkg5Rv-K7-6lVS8LWP7iZ_NYZmdkY6mbRfnBk0/edit" target="_blank"><span class="st">🟡 市場 Macro<span class="sn">每早 email 自動更新</span></span><span class="go">開啟 ↗</span></a>
+    <a class="src"><span class="st">⚙️ 股價 / 匯率<span class="sn">GOOGLEFINANCE 即時</span></span><span class="muted">自動</span></a>
   </div>
 
-  <div class="foot">後端同帳號私密讀取你的 Google Sheet · 部署設「僅限我自己」只有你看得到<br>🤖 Cross 私人 dashboard · 按 ↻ 重新整理</div>
+  <div class="foot" id="ts">後端同帳號私密讀取 · 部署設「僅限我自己」</div>
 </div>
 
 <script>
 var DATA = <?!= payload ?>;
 
-var num = function(s){ var n=parseFloat(String(s==null?'':s).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; };
-var fmt = function(n){ return Math.round(n).toLocaleString('en-US'); };
-var signed = function(n){ return (n>=0?'+':'−')+fmt(Math.abs(n)); };
-var cls = function(n){ return n>=0?'pos':'neg'; };
-var esc = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); };
+var num=function(s){var n=parseFloat(String(s==null?'':s).replace(/[^0-9.\-]/g,''));return isNaN(n)?0:n;};
+var grp=function(n){return Math.round(n).toLocaleString('en-US');};
+var comp=function(n){var a=Math.abs(n);if(a>=1e6)return(n/1e6).toFixed(2)+'M';if(a>=1e4)return(n/1e3).toFixed(0)+'K';return grp(n);};
+var signC=function(n){return(n>=0?'+':'−')+comp(Math.abs(n));};
+var signG=function(n){return(n>=0?'+':'−')+grp(Math.abs(n));};
+var cls=function(n){return n>=0?'pos':'neg';};
+var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');};
+var setTxt=function(id,t){var e=document.getElementById(id);if(e)e.textContent=t;};
 
 function render(d){
-  // ── 市場 Macro ──
-  var m = {};
-  (d.macro||[]).forEach(function(r){ if(r[0]) m[String(r[0]).trim()] = {v:r[1], light:r[2], note:r[3]}; });
+  // ── 市場 ──
+  var m={};(d.macro||[]).forEach(function(r){if(r[0])m[String(r[0]).trim()]={v:r[1],light:r[2],note:r[3]};});
+  var accent = '#ff8a5b';
   if(m['Regime']){
-    var rg=document.getElementById('regime');
-    rg.textContent=(m['Regime'].light||'')+' '+(m['Regime'].v||'')+(m['Regime'].note?' · '+m['Regime'].note:'');
+    var lt=String(m['Regime'].light||'');
+    accent = lt.indexOf('🔴')>=0?'#ff7a6b': lt.indexOf('🟡')>=0?'#f5c87a':'#3ddc97';
+    document.documentElement.style.setProperty('--accent',accent);
+    document.getElementById('regime').textContent=(m['Regime'].light||'')+' '+(m['Regime'].v||'')+(m['Regime'].note?' · '+m['Regime'].note:'');
   }
+  setTxt('mdate', m['更新日']? ('Macro '+String(m['更新日'].v).slice(0,10)) : '');
   var order=['VIX','實質利率','ISM','CPI','殖利率曲線','DXY','WTI','TAIEX'];
-  var lh='';
-  order.forEach(function(k){ if(m[k]) lh+='<div class="light"><div class="l">'+esc(k)+'</div><div class="r"><span>'+esc(m[k].v)+'</span><span>'+esc(m[k].light)+'</span></div><div class="note">'+esc(m[k].note)+'</div></div>'; });
+  var lh='';order.forEach(function(k){if(m[k])lh+='<div class="light"><div><div class="l">'+esc(k)+'</div><div class="lv">'+esc(m[k].note)+'</div></div><div class="r tabular">'+esc(m[k].v)+'<span class="em">'+esc(m[k].light)+'</span></div></div>';});
   document.getElementById('lights').innerHTML=lh;
-  document.getElementById('fed').innerHTML = m['Fed'] ? ('<b>🏛 Fed</b>　'+esc(m['Fed'].v)+(m['Fed'].note?'（'+esc(m['Fed'].note)+'）':'')) : '';
-  document.getElementById('bluf').textContent = m['BLUF'] ? m['BLUF'].v : '';
-  document.getElementById('act').innerHTML = m['動作'] ? ('<b>動作：</b>'+esc(m['動作'].v)) : '';
+  document.getElementById('fed').innerHTML = m['Fed']?('<b>🏛 Fed</b>　'+esc(m['Fed'].v)+(m['Fed'].note?'（'+esc(m['Fed'].note)+'）':'')):'';
+  document.getElementById('bluf').textContent = m['BLUF']?m['BLUF'].v:'';
+  document.getElementById('act').innerHTML = m['動作']?('<b>動作</b>　'+esc(m['動作'].v)):'';
 
   // ── 持倉 ──
   var H=d.holdings||[];
   var rows=H.slice(1).filter(function(x){return x[3]==='可交易'||x[3]==='鎖定';});
-  var mv=0,cost=0,tradePnl=0,lockPnl=0,items=[];
+  var mv=0,cost=0,tradePnl=0,lockPnl=0,lockMV=0,tradeMV=0,cashMV=0,items=[],maxV=0;
   rows.forEach(function(x){
     var v=num(x[9]),c=num(x[10]),p=num(x[11]);
     mv+=v;cost+=c;
-    if(x[3]==='可交易')tradePnl+=p; else lockPnl+=p;
-    if(x[0]!=='CASH'){var ci=v-p;items.push({name:x[1]||x[0],acct:x[2],prop:x[3],v:v,p:p,pct:ci?p/ci*100:0});}
+    if(x[3]==='可交易'){tradePnl+=p;tradeMV+=v;} else {lockPnl+=p;lockMV+=v;}
+    if(x[0]==='CASH'){cashMV+=v;} else {items.push({name:x[1]||x[0],acct:x[2],prop:x[3],v:v,p:p});if(v>maxV)maxV=v;}
   });
   items.sort(function(a,b){return b.v-a.v;});
-  var realized=0;
-  (d.realized||[]).forEach(function(x){ if(x[0]&&String(x[0]).indexOf('合計')>=0) realized=num(x[3]); });
-  var unreal=mv-cost, total=unreal+realized, pct=cost?total/cost*100:0;
+  var realized=0;(d.realized||[]).forEach(function(x){if(x[0]&&String(x[0]).indexOf('合計')>=0)realized=num(x[3]);});
+  var unreal=mv-cost,total=unreal+realized,pct=cost?total/cost*100:0;
 
-  document.getElementById('ts').innerHTML='更新：'+esc(d.ts)+'<span class="reload" id="rl">↻ 更新</span>';
-  document.getElementById('rl').addEventListener('click',function(){location.reload();});
-  document.getElementById('nw').textContent=fmt(mv);
-  var tp=document.getElementById('tpnl');tp.textContent=signed(total);tp.className='v '+cls(total);
-  var tc=document.getElementById('tpct');tc.textContent=(pct>=0?'+':'')+pct.toFixed(1)+'%';tc.className='v '+cls(total);
-  var setg=function(id,val){var e=document.getElementById(id);e.textContent=signed(val);e.className='v '+cls(val);};
-  setg('g-trade',tradePnl);setg('g-lock',lockPnl);setg('g-real',realized);
+  // hero
+  setTxt('nw',comp(mv));
+  setTxt('nwfull','= NT$ '+grp(mv)+'　|　未實現 '+signG(unreal)+'　已實現 '+signG(realized));
+  var pc=document.getElementById('pnlchip');pc.className='chip '+cls(total);
+  pc.textContent=(total>=0?'▲ ':'▼ ')+signG(total).replace(/^[+−]/, total>=0?'+':'−')+'　'+(pct>=0?'+':'')+pct.toFixed(1)+'%';
 
-  var html='<table><thead><tr><th>標的</th><th>市值 TWD</th><th>損益 TWD</th><th>損益%</th></tr></thead><tbody>';
-  items.forEach(function(it){var g=it.p>=0?'g':'r';
-    html+='<tr><td><span class="sym">'+esc(it.name)+'</span><span class="nm">'+esc(it.acct)+' · '+esc(it.prop)+'</span></td><td>'+fmt(it.v)+'</td><td class="'+cls(it.p)+'">'+signed(it.p)+'</td><td><span class="pill '+g+'">'+(it.pct>=0?'+':'')+it.pct.toFixed(0)+'%</span></td></tr>';});
-  html+='</tbody><tfoot><tr><td>合計（含現金）</td><td>'+fmt(mv)+'</td><td class="'+cls(unreal)+'">'+signed(unreal)+'</td><td></td></tr></tfoot></table>';
-  document.getElementById('holdings').innerHTML=html;
+  // allocation (鎖定 / 可交易證券 / 現金)
+  var tradeSec=tradeMV-cashMV, tot=mv||1;
+  document.getElementById('alloc').innerHTML=
+    '<i class="s-lock" style="width:'+(lockMV/tot*100)+'%"></i>'+
+    '<i class="s-trade" style="width:'+(tradeSec/tot*100)+'%"></i>'+
+    '<i class="s-cash" style="width:'+(cashMV/tot*100)+'%"></i>';
+  document.getElementById('leg').innerHTML=
+    '<span><i class="dot" style="background:#6aa8ff"></i>🔒 鎖定 '+(lockMV/tot*100).toFixed(0)+'%</span>'+
+    '<span><i class="dot" style="background:#3ddc97"></i>🎚 可交易 '+(tradeSec/tot*100).toFixed(0)+'%</span>'+
+    '<span><i class="dot" style="background:#f5c87a"></i>💵 現金 '+(cashMV/tot*100).toFixed(0)+'%</span>';
+
+  // P&L layer
+  var setStat=function(vid,bid,val,color){var e=document.getElementById(vid);e.textContent=signG(val);e.className='v '+cls(val);
+    var bar=document.getElementById(bid);var mx=Math.max(Math.abs(tradePnl),Math.abs(lockPnl),Math.abs(realized),1);
+    bar.style.width=(Math.abs(val)/mx*100)+'%';bar.style.background=color;};
+  setStat('g-trade','b-trade',tradePnl,'#3ddc97');
+  setStat('g-lock','b-lock',lockPnl,'#6aa8ff');
+  setStat('g-real','b-real',realized,'#f5c87a');
+
+  // holdings list with proportional bars
+  var hh='';
+  items.forEach(function(it){
+    var w=maxV?(it.v/maxV*100):0; var ci=it.v-it.p; var rp=ci?it.p/ci*100:0;
+    hh+='<div class="hold"><div class="barbg" style="width:'+w+'%"></div>'+
+        '<div class="hl"><div class="hn">'+esc(it.name)+'</div><div class="ht"><span class="htag">'+esc(it.acct)+'</span><span>'+(it.prop==='鎖定'?'🔒 鎖定':'🎚 可交易')+'</span></div></div>'+
+        '<div class="hr"><div class="hmv tabular">'+grp(it.v)+'</div><div class="pillp '+cls(it.p)+'">'+signG(it.p)+' · '+(rp>=0?'+':'')+rp.toFixed(0)+'%</div></div></div>';
+  });
+  hh+='<div class="holdtot"><span>合計（含現金）</span><span class="tabular '+cls(unreal)+'">'+grp(mv)+'　'+signG(unreal)+'</span></div>';
+  document.getElementById('holdings').innerHTML=hh;
+
+  setTxt('ts','更新：'+esc(d.ts)+' · 後端私密讀取 · 僅限你登入可見');
 }
 document.getElementById('rl').addEventListener('click',function(){location.reload();});
 render(DATA);
