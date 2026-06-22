@@ -238,10 +238,14 @@ BLUF|<一句總結>||
 
 ## Step 7：Slack 每早摘要推播
 
-寄完 email 後，用 Slack 工具 `slack_send_message` 發一則**乾淨摘要**到 Cross 指定頻道
-（頻道 ID/名稱見排程設定；預設發 Cross 的 Slack DM 或 `#market` 頻道）。
+寄完 email 後，用 Slack 工具 `slack_send_message` 發一則**乾淨摘要**到 Cross 的 Slack DM。
 
-格式（Slack mrkdwn，**用真 emoji**，先結論）：
+```
+channel_id   = URRV2AWAW          # Cross 的 Slack 使用者 ID（發 DM 給本人）
+DASHBOARD_URL = https://script.google.com/macros/s/AKfycbx2ceQdDtKBpGBnyZCyRRn_xifZGNmNHbMJ2EZ9YVscgAplc_K7Yl14qFaK8dwmaGLbmQ/exec
+```
+
+格式（Slack 標準 markdown：`**粗體**`、`[文字](網址)`；**用真 emoji**，先結論）：
 ```
 :chart_with_upwards_trend: *宏觀 × 持倉 — 2026/06/21（六）*
 *Regime：* ☀️ 夏 Overheating · 🔴 紅燈 · 建議現金 12%
@@ -255,7 +259,7 @@ BLUF|<一句總結>||
 :bar_chart: 即時 dashboard → {{DASHBOARD_URL}}
 ```
 
-- `{{DASHBOARD_URL}}` = Apps Script 部署後的網址（排程設定裡填）。未填則略過此行。
+- `DASHBOARD_URL` 已部署（見上方）；放成可點連結 `[開啟即時持倉](DASHBOARD_URL)`。
 - 摘要與 email/dashboard 數據一致（同一次抓取）。
 - 不放表格全文（那是 email 的事）；Slack 只要「掃一眼就懂 + 點連結看細節」。
 
