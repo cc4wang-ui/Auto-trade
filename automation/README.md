@@ -55,4 +55,4 @@ automation/
 | 外部依賴 | GAS Web App、token、webhook | 無 |
 | 排程 | Anthropic Routine（雙時段） | Anthropic Routine（台北 07:00 早晨一班） |
 
-> 根目錄的 `macro_snapshot_prompt.md`、`macro_snapshot_handler.gs` 是**舊 GAS 版，保留備查但不再使用**。
+> 舊 GAS 版（`macro_snapshot_prompt.md`、`macro_snapshot_handler.gs`）**已刪除**。現行只用 web_search + Gmail。

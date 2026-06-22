@@ -63,9 +63,8 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 | 任何涉及股價的對話 | @.claude/skills/price-validation/SKILL.md |
 | 個股財務分析 / 五條件選股 | @.claude/skills/financial-analysis/SKILL.md |
 | Portfolio 配置 / 交易決策 | @.claude/skills/trading-decisions/SKILL.md |
-| **每日 Macro 推播 / Routine** | **@automation/README.md → @automation/routine/macro_snapshot_prompt.md** |
-| **GAS bot 改造 / Telegram endpoint** | **@automation/gas-endpoint/macro_snapshot_handler.gs** |
-| **Pine alert webhook 設定** | **@automation/gas-endpoint/pine_alert_webhook.md** |
+| **每日 Macro × 持倉電子報 / Routine** | **@automation/README.md → @automation/routines/macro_daily.md**（GAS 已棄用，只用 web_search + Gmail）|
+| **即時持倉網頁 (Apps Script)** | **@apps-script/README.md** |
 | 經濟相態判斷 | @docs/module-1a.md（成長/通膨）+ @docs/module-1b.md（貨幣政策）|
 | 跨市場同步性 | @docs/module-2.md |
 | 先行指標 | @docs/module-leading.md |
@@ -76,8 +75,8 @@ v10 訊號 + 五條件選股 + portfolio 配置決策 → 用 @.claude/skills/tr
 ## 當前狀態快照（2026/04）
 
 - v10 Pine 已完成、validate_pine 通過。Mock 6/6 通過，等實機驗證
-- **每日 Macro 推播 pipeline 已設計完成**：Claude Code Routine（雲端 cron 08:30 / 21:00）→ POST GAS Web App → 既有 Telegram bot 推播。配置檔在 `automation/`
-- **v10 訊號即時推播**：Pine alert webhook → GAS → Telegram。設定指引在 `automation/gas-endpoint/pine_alert_webhook.md`
+- **每日 Macro × 持倉電子報已上線**：Claude Routine（台北 07:00 / cron `0 23 * * 0-4`）→ web_search 抓總經 + 讀個人 Google Sheet 持倉 → 套 `automation/newsletter/template.html` → **Gmail 寄 cc4wang@gmail.com**。**GAS / Telegram / Slack 全棄用，不需任何 secret。**
+- **即時持倉網頁**：Google Apps Script web app（同帳號私密讀表，部署「僅限我自己」）。檔在 `apps-script/`
 - 已開倉：2330 / 006208 / 2382 / QQQ / 9660 / 00632R / NFLX / NVDA / VOO / VTI / IXC（4/21 新建能源對沖）
 - 1810 小米 -43%，採 D+ 分批止損（先 1,100 股近日，剩 1,100 股等 5/27 Q1 財報）
 - 自動化 pipeline：TradingView Essential webhook → TradersPost → IB（Cross 入金中）
